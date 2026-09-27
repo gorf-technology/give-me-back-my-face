@@ -22,7 +22,10 @@
   --line:#D2D2CD;
   --stamp:#C4311F;
   --tray:#2B2B2B;
-  --board:min(86vw, 360px);
+  /* 보드 폭. 세로 보드라 화면 높이가 먼저 모자란다 → 높이 기준 상한도 건다.
+     340px = 헤더·문구·버튼·푸터가 차지하는 대략의 세로 공간 */
+  --ratio:calc(3 / 4);
+  --board:max(200px, min(86vw, 360px, calc((100dvh - 340px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * var(--ratio))));
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
@@ -71,7 +74,7 @@ main{
 
 /* 시작: 뷰파인더 */
 .slate{
-  width:var(--board);aspect-ratio:1;background:var(--paper);position:relative;
+  width:var(--board);aspect-ratio:var(--ratio);background:var(--paper);position:relative;
   display:flex;align-items:center;justify-content:center;
   box-shadow:0 20px 44px -26px rgba(0,0,0,.5);
 }
@@ -84,20 +87,12 @@ main{
 
 /* 크롭 */
 #cropFrame{
-  width:var(--board);aspect-ratio:1;position:relative;overflow:hidden;
+  width:var(--board);aspect-ratio:var(--ratio);position:relative;overflow:hidden;
   background:var(--tray);touch-action:none;
   box-shadow:0 20px 44px -26px rgba(0,0,0,.5);
 }
 #cropImg{position:absolute;top:0;left:0;transform-origin:0 0;user-select:none;-webkit-user-drag:none}
-.cropGuide{position:absolute;inset:0;pointer-events:none;
-  background:
-    linear-gradient(to right,transparent 25%,rgba(255,255,255,.14) 25%,rgba(255,255,255,.14) calc(25% + 1px),transparent calc(25% + 1px)),
-    linear-gradient(to right,transparent 50%,rgba(255,255,255,.14) 50%,rgba(255,255,255,.14) calc(50% + 1px),transparent calc(50% + 1px)),
-    linear-gradient(to right,transparent 75%,rgba(255,255,255,.14) 75%,rgba(255,255,255,.14) calc(75% + 1px),transparent calc(75% + 1px)),
-    linear-gradient(to bottom,transparent 25%,rgba(255,255,255,.14) 25%,rgba(255,255,255,.14) calc(25% + 1px),transparent calc(25% + 1px)),
-    linear-gradient(to bottom,transparent 50%,rgba(255,255,255,.14) 50%,rgba(255,255,255,.14) calc(50% + 1px),transparent calc(50% + 1px)),
-    linear-gradient(to bottom,transparent 75%,rgba(255,255,255,.14) 75%,rgba(255,255,255,.14) calc(75% + 1px),transparent calc(75% + 1px));
-}
+.cropGuide{position:absolute;inset:0;pointer-events:none}
 .tools{display:flex;gap:8px;width:100%;max-width:var(--board)}
 .tool{
   flex:1;padding:10px 0;border:1px solid #8E8E88;border-radius:2px;
@@ -107,7 +102,7 @@ main{
 .tool[aria-pressed="true"]{background:var(--ink);color:#F5F5F3;border-color:var(--ink)}
 
 /* 보드 */
-#boardWrap{position:relative;width:var(--board);aspect-ratio:1}
+#boardWrap{position:relative;width:var(--board);aspect-ratio:var(--ratio)}
 #board{position:absolute;inset:0;background:var(--tray);box-shadow:0 20px 44px -26px rgba(0,0,0,.55)}
 .piece{
   position:absolute;top:0;left:0;background-repeat:no-repeat;
@@ -243,17 +238,21 @@ input[type=file]{display:none}
 
 <script>
 /* =========================================================
-   내 얼굴 돌려줘 v1.1.0
+   내 얼굴 돌려줘 v1.3.0
    저장소 없음 — 사진은 이 기기 밖으로 나가지 않는다.
    2차 예정: Supabase 1회용 링크(게임 종료 시 삭제 + 1시간 만료)
    ========================================================= */
 
 /* ---------- 설정값 ---------- */
-const APP_VERSION    = 'v1.1.0';
-const N              = 4;        // 격자 한 변, 단위: 칸
-const BLANK          = N - 1;    // 빠지는 조각 = 우측 상단
-const SHUFFLE_MOVES  = 160;      // 섞기 이동 수, 단위: 회. 낮출수록 쉬워진다
-const CROP_SIZE_PX   = 800;      // 크롭 결과 한 변, 단위: px
+const APP_VERSION    = 'v1.3.0';
+const COLS           = 3;        // 가로 칸 수, 단위: 칸
+const ROWS           = 4;        // 세로 칸 수, 단위: 칸 (v1.3.0: 3×3 → 3×4 세로형)
+const CELLS          = COLS * ROWS;
+const BLANK          = COLS - 1; // 빠지는 조각 = 우측 상단
+const SHUFFLE_MOVES  = 200;      // 섞기 이동 수, 단위: 회. 낮출수록 쉬워진다
+const CELL_PX        = 240;      // 결과 이미지의 조각 한 변, 단위: px
+const CROP_W_PX      = CELL_PX * COLS;   // 720 px
+const CROP_H_PX      = CELL_PX * ROWS;   // 960 px (조각은 정사각, 전체는 3:4)
 const SHARE_PAD_PX   = 130;      // 공유 이미지 하단 라벨 높이, 단위: px
 const GAP_PX         = 2;        // 조각 간격, 단위: px
 const HOLD_MS        = 1000;     // 원본 노출, 단위: ms
@@ -262,6 +261,7 @@ const SCATTER_MS     = 800;      // 흩어짐, 단위: ms
 const SETTLE_MS      = 480;      // 착지 대기, 단위: ms
 const MAX_ZOOM       = 6;        // 크롭 최대 확대 배율
 const CONTACT_CAP    = 5;        // 기기당 하루 문의 상한, 단위: 건
+const CAMERA_MIRROR  = true;     // 카메라로 찍은 사진을 촬영 화면(거울상)과 같게 보여줌
 
 // EmailJS — 배포 전에 채운다. 비어 있으면 문의 전송이 꺼진다.
 const EMAILJS = { publicKey:'', serviceId:'', templateId:'' };
@@ -279,7 +279,18 @@ const $ = id => document.getElementById(id);
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const board = $('board'), boardWrap = $('boardWrap');
 const cropFrame = $('cropFrame'), cropImg = $('cropImg');
-let frameSize = 0;
+let frameW = 0, frameH = 0;
+document.documentElement.style.setProperty('--ratio', `calc(${COLS} / ${ROWS})`);
+
+/* 크롭 가이드선을 COLS·ROWS에 맞춰 그린다 (칸 수를 바꿔도 CSS를 고칠 필요 없음) */
+(function drawCropGuide(){
+  const c = 'rgba(255,255,255,.14)', layers = [];
+  const line = (dir, at) => layers.push(
+    `linear-gradient(to ${dir},transparent ${at},${c} ${at},${c} calc(${at} + 1px),transparent calc(${at} + 1px))`);
+  for(let k = 1; k < COLS; k++) line('right',  (100 * k / COLS).toFixed(4) + '%');
+  for(let k = 1; k < ROWS; k++) line('bottom', (100 * k / ROWS).toFixed(4) + '%');
+  document.querySelector('.cropGuide').style.background = layers.join(',');
+})();
 
 /* ---------- 화면 전환 ---------- */
 function show(name){
@@ -299,13 +310,15 @@ function setActions(list){
 }
 
 /* ---------- 사진 읽기 ---------- */
-async function loadFile(file){
+async function loadFile(file, fromCamera = false){
   if(!file) return;
   let bmp;
   try{ bmp = await createImageBitmap(file, { imageOrientation:'from-image' }); }
   catch(e){ bmp = await createImageBitmap(file); }
-  S.srcBmp = bmp; S.rot = 0; S.flip = false;
-  $('btnFlip').setAttribute('aria-pressed', 'false');
+  // iPhone 셀카: 촬영 화면은 거울상인데 저장본은 뒤집히지 않아 '반전돼 보임'.
+  // 카메라 경로만 기본 반전해서 찍을 때 본 모습 그대로 보여준다. 앨범은 원본 그대로.
+  S.srcBmp = bmp; S.rot = 0; S.flip = fromCamera && CAMERA_MIRROR;
+  $('btnFlip').setAttribute('aria-pressed', String(S.flip));
   // 화면을 먼저 켜야 프레임 크기를 잴 수 있다 (v1.0.0 버그: 순서가 반대였다)
   show('crop');
   rebuildView();
@@ -314,8 +327,8 @@ async function loadFile(file){
 
 /* 회전·반전을 반영한 표시용 canvas */
 function rebuildView(){
-  frameSize = cropFrame.clientWidth;
-  if(!frameSize){ requestAnimationFrame(rebuildView); return; }
+  frameW = cropFrame.clientWidth; frameH = cropFrame.clientHeight;
+  if(!frameW || !frameH){ requestAnimationFrame(rebuildView); return; }
 
   const b = S.srcBmp, r = S.rot, swap = (r === 90 || r === 270);
   const cv = document.createElement('canvas');
@@ -332,18 +345,18 @@ function rebuildView(){
   cropImg.style.width = cv.width + 'px';
   cropImg.style.height = cv.height + 'px';
 
-  const base = Math.max(frameSize / cv.width, frameSize / cv.height);
+  const base = Math.max(frameW / cv.width, frameH / cv.height);
   S.crop.base = base; S.crop.scale = base;
-  S.crop.tx = (frameSize - cv.width * base) / 2;
-  S.crop.ty = (frameSize - cv.height * base) / 2;
+  S.crop.tx = (frameW - cv.width * base) / 2;
+  S.crop.ty = (frameH - cv.height * base) / 2;
   applyCrop();
 }
 
 /* ---------- 크롭 조작 ---------- */
 function clampCrop(){
   const w = S.viewCv.width * S.crop.scale, h = S.viewCv.height * S.crop.scale;
-  S.crop.tx = Math.min(0, Math.max(frameSize - w, S.crop.tx));
-  S.crop.ty = Math.min(0, Math.max(frameSize - h, S.crop.ty));
+  S.crop.tx = Math.min(0, Math.max(frameW - w, S.crop.tx));
+  S.crop.ty = Math.min(0, Math.max(frameH - h, S.crop.ty));
 }
 function applyCrop(){
   clampCrop();
@@ -399,32 +412,32 @@ cropFrame.addEventListener('wheel', e => {
 function bakeCrop(){
   const s = S.crop.scale;
   const cv = document.createElement('canvas');
-  cv.width = cv.height = CROP_SIZE_PX;
+  cv.width = CROP_W_PX; cv.height = CROP_H_PX;
   const ctx = cv.getContext('2d');
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(S.viewCv, -S.crop.tx / s, -S.crop.ty / s, frameSize / s, frameSize / s,
-                0, 0, CROP_SIZE_PX, CROP_SIZE_PX);
+  ctx.drawImage(S.viewCv, -S.crop.tx / s, -S.crop.ty / s, frameW / s, frameH / s,
+                0, 0, CROP_W_PX, CROP_H_PX);
   S.cropCv = cv;
 }
 
 /* ---------- 슬라이딩 퍼즐 ---------- */
-const cellPx = () => (boardWrap.clientWidth - S.gap * (N - 1)) / N;
+const cellPx = () => (boardWrap.clientWidth - S.gap * (COLS - 1)) / COLS;
 const isSolved = () => S.order.every((p, s) => p === s);
 const misplaced = order => order.filter((p, s) => p !== s && p !== BLANK).length;
 
 function neighbors(b){
-  const r = Math.floor(b / N), c = b % N, out = [];
-  if(r > 0) out.push(b - N);
-  if(r < N - 1) out.push(b + N);
+  const r = Math.floor(b / COLS), c = b % COLS, out = [];
+  if(r > 0) out.push(b - COLS);
+  if(r < ROWS - 1) out.push(b + COLS);
   if(c > 0) out.push(b - 1);
-  if(c < N - 1) out.push(b + 1);
+  if(c < COLS - 1) out.push(b + 1);
   return out;
 }
 
 function buildPieces(){
   board.innerHTML = ''; S.pieces = [];
   const url = S.cropCv.toDataURL('image/jpeg', .9);
-  for(let i = 0; i < N * N; i++){
+  for(let i = 0; i < CELLS; i++){
     const el = document.createElement('div');
     el.className = 'piece';
     el.style.backgroundImage = `url(${url})`;
@@ -441,9 +454,9 @@ function layout(animate = true){
   S.order.forEach((piece, slot) => {
     const el = S.pieces[piece];
     el.style.width = el.style.height = cell + 'px';
-    el.style.backgroundSize = `${cell * N}px ${cell * N}px`;
-    el.style.backgroundPosition = `${-(piece % N) * cell}px ${-Math.floor(piece / N) * cell}px`;
-    el.style.transform = `translate(${(slot % N) * step}px, ${Math.floor(slot / N) * step}px)`;
+    el.style.backgroundSize = `${cell * COLS}px ${cell * ROWS}px`;
+    el.style.backgroundPosition = `${-(piece % COLS) * cell}px ${-Math.floor(piece / COLS) * cell}px`;
+    el.style.transform = `translate(${(slot % COLS) * step}px, ${Math.floor(slot / COLS) * step}px)`;
   });
   if(!animate) requestAnimationFrame(() => S.pieces.forEach(el => el.style.transition = ''));
 }
@@ -451,9 +464,9 @@ function layout(animate = true){
 /* 완성 상태에서 빈칸을 무작위로 굴려 섞는다.
    실제 이동만 거꾸로 밟으므로 언제나 풀 수 있는 배치가 나온다. */
 function shuffleOrder(){
-  const order = [...Array(N * N).keys()];
+  const order = [...Array(CELLS).keys()];
   let b = BLANK, prev = -1, moves = 0;
-  const need = Math.ceil((N * N - 1) * 0.7);
+  const need = Math.ceil((CELLS - 1) * 0.7);
   while(moves < SHUFFLE_MOVES || misplaced(order) < need){
     const opts = neighbors(b).filter(x => x !== prev);
     const t = opts[Math.floor(Math.random() * opts.length)];
@@ -515,9 +528,9 @@ function onPieceTap(piece){
   if(S.scene !== 'play' || S.busy || piece === BLANK) return;
   const slot = S.order.indexOf(piece);
   let b = S.order.indexOf(BLANK);
-  const sr = Math.floor(slot / N), sc = slot % N, br = Math.floor(b / N), bc = b % N;
+  const sr = Math.floor(slot / COLS), sc = slot % COLS, br = Math.floor(b / COLS), bc = b % COLS;
   if(sr !== br && sc !== bc) return;
-  const step = (sr === br) ? (sc > bc ? 1 : -1) : (sr > br ? N : -N);
+  const step = (sr === br) ? (sc > bc ? 1 : -1) : (sr > br ? COLS : -COLS);
   while(b !== slot){
     const nb = b + step;
     [S.order[b], S.order[nb]] = [S.order[nb], S.order[b]];
@@ -580,30 +593,31 @@ function restart(){
 
 /* ---------- 공유 이미지 ---------- */
 function renderShareCanvas(caption){
-  const size = CROP_SIZE_PX;
+  const W = CROP_W_PX, H = CROP_H_PX;          // 720 × 960 px + 하단 라벨
   const cv = document.createElement('canvas');
-  cv.width = size; cv.height = size + SHARE_PAD_PX;
+  cv.width = W; cv.height = H + SHARE_PAD_PX;
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, cv.width, cv.height);
 
   if(S.solved){
-    ctx.drawImage(S.cropCv, 0, 0, size, size);
+    ctx.drawImage(S.cropCv, 0, 0, W, H);
   }else{
-    ctx.fillStyle = '#2B2B2B'; ctx.fillRect(0, 0, size, size);
-    const g = Math.round(size * .005), cell = (size - g * (N - 1)) / N, src = size / N;
+    ctx.fillStyle = '#2B2B2B'; ctx.fillRect(0, 0, W, H);
+    // 조각은 정사각: 가로 기준으로 칸 크기를 정하고 세로도 같은 간격으로 쌓는다
+    const g = Math.round(W * .005), cell = (W - g * (COLS - 1)) / COLS;
     S.order.forEach((piece, slot) => {
       if(piece === BLANK) return;
       ctx.drawImage(S.cropCv,
-        (piece % N) * src, Math.floor(piece / N) * src, src, src,
-        (slot % N) * (cell + g), Math.floor(slot / N) * (cell + g), cell, cell);
+        (piece % COLS) * CELL_PX, Math.floor(piece / COLS) * CELL_PX, CELL_PX, CELL_PX,
+        (slot % COLS) * (cell + g), Math.floor(slot / COLS) * (cell + g), cell, cell);
     });
   }
 
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#141414'; ctx.font = '700 34px Pretendard, sans-serif';
-  ctx.fillText(caption, 28, size + 48);
+  ctx.fillText(caption, 28, H + 48);
   ctx.fillStyle = '#6B6B66'; ctx.font = '400 24px Pretendard, sans-serif';
-  ctx.fillText('내 얼굴 돌려줘', 28, size + 90);
+  ctx.fillText('내 얼굴 돌려줘', 28, H + 90);
   return cv;
 }
 
@@ -660,7 +674,7 @@ $('btnContactSend').onclick = async () => {
 /* ---------- 배선 ---------- */
 $('btnCamera').onclick = () => $('fileCamera').click();
 $('btnAlbum').onclick  = () => $('fileAlbum').click();
-$('fileCamera').onchange = e => loadFile(e.target.files[0]);
+$('fileCamera').onchange = e => loadFile(e.target.files[0], true);
 $('fileAlbum').onchange  = e => loadFile(e.target.files[0]);
 $('btnRotL').onclick = () => { S.rot = (S.rot + 270) % 360; rebuildView(); };
 $('btnRotR').onclick = () => { S.rot = (S.rot + 90) % 360; rebuildView(); };
