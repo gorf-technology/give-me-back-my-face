@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#9FB8C6">
-<meta name="description" content="친구 얼굴을 조각내고 섞는 퍼즐. 사진은 이 기기 밖으로 나가지 않습니다.">
+<meta name="theme-color" content="#E4E4E1">
+<meta name="description" content="친구 얼굴을 조각내고 섞는 슬라이딩 퍼즐. 사진은 이 기기 밖으로 나가지 않습니다.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="내 얼굴 돌려줘">
@@ -13,13 +13,15 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.css">
 <style>
 :root{
-  --booth:#9FB8C6;
-  --booth-deep:#7E9CAC;
-  --card:#FCFCFB;
-  --ink:#16232B;
-  --muted:#5F7784;
-  --line:#C9D6DE;
-  --stamp:#B33A2E;
+  /* 사진관 배경지 톤: 피부색이 가장 정직하게 보이는 중성 회색 */
+  --bg-center:#E6E6E3;
+  --bg-edge:#B7B7B2;
+  --paper:#FFFFFF;
+  --ink:#141414;
+  --muted:#6B6B66;
+  --line:#D2D2CD;
+  --stamp:#C4311F;
+  --tray:#2B2B2B;
   --board:min(86vw, 360px);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -28,12 +30,9 @@ body{
   margin:0;
   font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
   color:var(--ink);
-  background:radial-gradient(ellipse at 50% 30%, #B6CBD6 0%, var(--booth) 46%, var(--booth-deep) 100%);
+  background:radial-gradient(ellipse 90% 70% at 50% 38%, var(--bg-center) 0%, #D4D4D0 55%, var(--bg-edge) 100%);
   display:flex;flex-direction:column;align-items:center;
-  min-height:100dvh;
-  overflow:hidden;
-  overscroll-behavior:none;
-  touch-action:manipulation;
+  min-height:100dvh;overflow:hidden;overscroll-behavior:none;touch-action:manipulation;
 }
 button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
@@ -43,8 +42,8 @@ header{
   padding:calc(env(safe-area-inset-top) + 16px) 20px 0;
   display:flex;justify-content:space-between;align-items:baseline;
 }
-h1{font-size:15px;margin:0;font-weight:700;letter-spacing:-.01em}
-.eyebrow{font-size:10px;letter-spacing:.22em;color:#3E5866;opacity:.7}
+h1{font-size:15px;margin:0;font-weight:800;letter-spacing:-.02em}
+.eyebrow{font-size:10px;letter-spacing:.2em;color:var(--muted)}
 
 main{
   flex:1;width:100%;max-width:520px;
@@ -56,73 +55,70 @@ main{
 
 .status{text-align:center;min-height:50px;display:flex;flex-direction:column;gap:5px;justify-content:center}
 .status .line{font-size:19px;font-weight:700;letter-spacing:-.02em}
-.status .sub{font-size:12.5px;color:#31505E;line-height:1.5}
+.status .sub{font-size:12.5px;color:var(--muted);line-height:1.5}
 
 .btn{
-  padding:14px 20px;border-radius:2px;background:var(--ink);color:#F2F6F8;
+  padding:14px 20px;border-radius:2px;background:var(--ink);color:#F5F5F3;
   font-size:15px;font-weight:600;letter-spacing:-.01em;width:100%;
   transition:transform .08s ease;
 }
 .btn:active{transform:translateY(1px)}
-.btn.ghost{background:transparent;color:#223B47;border:1px solid #7E9CAC}
+.btn.ghost{background:rgba(255,255,255,.35);color:var(--ink);border:1px solid #8E8E88}
 .btn.stamp{background:var(--stamp);color:#fff}
+.btn:focus-visible,.tool:focus-visible,.util:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .row{display:flex;gap:10px;width:100%}
 .stack{display:flex;flex-direction:column;gap:9px;width:100%;max-width:var(--board)}
 
-/* 시작 화면 */
+/* 시작: 뷰파인더 */
 .slate{
-  width:var(--board);aspect-ratio:1;background:var(--card);
-  border:1px solid var(--line);position:relative;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
-  box-shadow:0 18px 40px -24px rgba(10,30,45,.55);
+  width:var(--board);aspect-ratio:1;background:var(--paper);position:relative;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 20px 44px -26px rgba(0,0,0,.5);
 }
-.slate::after{content:"";position:absolute;inset:9px;border:1px dashed var(--line);pointer-events:none}
-.slate .glyph{font-size:46px;line-height:1;color:#B6C7D1}
-.slate .cap{font-size:12.5px;color:var(--muted);text-align:center;padding:0 26px;line-height:1.65}
+.slate i{position:absolute;width:26px;height:26px;border-color:var(--ink);border-style:solid;border-width:0}
+.slate i:nth-child(1){top:16px;left:16px;border-top-width:2px;border-left-width:2px}
+.slate i:nth-child(2){top:16px;right:16px;border-top-width:2px;border-right-width:2px}
+.slate i:nth-child(3){bottom:16px;left:16px;border-bottom-width:2px;border-left-width:2px}
+.slate i:nth-child(4){bottom:16px;right:16px;border-bottom-width:2px;border-right-width:2px}
+.slate .cap{font-size:14px;font-weight:600;letter-spacing:-.01em;text-align:center;padding:0 30px}
 
 /* 크롭 */
 #cropFrame{
   width:var(--board);aspect-ratio:1;position:relative;overflow:hidden;
-  background:#26343C;border:1px solid var(--line);touch-action:none;
-  box-shadow:0 18px 40px -24px rgba(10,30,45,.55);
+  background:var(--tray);touch-action:none;
+  box-shadow:0 20px 44px -26px rgba(0,0,0,.5);
 }
 #cropImg{position:absolute;top:0;left:0;transform-origin:0 0;user-select:none;-webkit-user-drag:none}
 .cropGuide{position:absolute;inset:0;pointer-events:none;
   background:
-    linear-gradient(to right,transparent 33.3%,rgba(255,255,255,.15) 33.3%,rgba(255,255,255,.15) calc(33.3% + 1px),transparent calc(33.3% + 1px)),
-    linear-gradient(to right,transparent 66.6%,rgba(255,255,255,.15) 66.6%,rgba(255,255,255,.15) calc(66.6% + 1px),transparent calc(66.6% + 1px)),
-    linear-gradient(to bottom,transparent 33.3%,rgba(255,255,255,.15) 33.3%,rgba(255,255,255,.15) calc(33.3% + 1px),transparent calc(33.3% + 1px)),
-    linear-gradient(to bottom,transparent 66.6%,rgba(255,255,255,.15) 66.6%,rgba(255,255,255,.15) calc(66.6% + 1px),transparent calc(66.6% + 1px));
+    linear-gradient(to right,transparent 25%,rgba(255,255,255,.14) 25%,rgba(255,255,255,.14) calc(25% + 1px),transparent calc(25% + 1px)),
+    linear-gradient(to right,transparent 50%,rgba(255,255,255,.14) 50%,rgba(255,255,255,.14) calc(50% + 1px),transparent calc(50% + 1px)),
+    linear-gradient(to right,transparent 75%,rgba(255,255,255,.14) 75%,rgba(255,255,255,.14) calc(75% + 1px),transparent calc(75% + 1px)),
+    linear-gradient(to bottom,transparent 25%,rgba(255,255,255,.14) 25%,rgba(255,255,255,.14) calc(25% + 1px),transparent calc(25% + 1px)),
+    linear-gradient(to bottom,transparent 50%,rgba(255,255,255,.14) 50%,rgba(255,255,255,.14) calc(50% + 1px),transparent calc(50% + 1px)),
+    linear-gradient(to bottom,transparent 75%,rgba(255,255,255,.14) 75%,rgba(255,255,255,.14) calc(75% + 1px),transparent calc(75% + 1px));
 }
-.tools{display:flex;gap:8px;width:100%;max-width:var(--board);justify-content:center}
+.tools{display:flex;gap:8px;width:100%;max-width:var(--board)}
 .tool{
-  padding:9px 16px;border:1px solid #7E9CAC;border-radius:2px;
-  font-size:12.5px;color:#223B47;background:rgba(252,252,251,.5);
+  flex:1;padding:10px 0;border:1px solid #8E8E88;border-radius:2px;
+  font-size:12.5px;color:var(--ink);background:rgba(255,255,255,.35);
 }
 .tool:active{background:#fff}
-
-/* 난이도 */
-.levels{display:flex;flex-direction:column;gap:8px;width:100%;max-width:var(--board)}
-.level{
-  display:flex;align-items:center;gap:14px;padding:14px 16px;
-  background:var(--card);border:1px solid var(--line);border-radius:2px;text-align:left;
-}
-.level[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--ink);background:#fff}
-.level .n{font-size:11px;letter-spacing:.1em;color:var(--muted);min-width:36px}
-.level .t{font-size:15px;font-weight:600;display:block}
-.level .d{font-size:11.5px;color:var(--muted);display:block;margin-top:2px}
+.tool[aria-pressed="true"]{background:var(--ink);color:#F5F5F3;border-color:var(--ink)}
 
 /* 보드 */
 #boardWrap{position:relative;width:var(--board);aspect-ratio:1}
-#board{position:absolute;inset:0;background:#2A3941;box-shadow:0 18px 40px -24px rgba(10,30,45,.6)}
+#board{position:absolute;inset:0;background:var(--tray);box-shadow:0 20px 44px -26px rgba(0,0,0,.55)}
 .piece{
   position:absolute;top:0;left:0;background-repeat:no-repeat;
-  transition:transform .42s cubic-bezier(.22,1,.28,1),
-             width .3s ease, height .3s ease,
-             background-size .3s ease, background-position .3s ease;
+  transition:transform .22s cubic-bezier(.25,1,.35,1),
+             opacity .35s ease,
+             width .3s ease,height .3s ease,
+             background-size .3s ease,background-position .3s ease;
   will-change:transform;
 }
-.piece.sel{outline:2px solid var(--stamp);outline-offset:-2px;z-index:5}
+.piece.gone{opacity:0;pointer-events:none}
+.piece.flying{transition-duration:.42s}
 .piece.locked{transition-duration:.6s}
 @media (prefers-reduced-motion:reduce){.piece{transition-duration:.01ms !important}}
 
@@ -132,7 +128,7 @@ main{
   opacity:0;pointer-events:none;z-index:20;
   color:var(--stamp);border:3px double var(--stamp);
   padding:9px 18px;font-size:21px;font-weight:800;letter-spacing:.05em;
-  background:rgba(252,252,251,.86);
+  background:rgba(255,255,255,.88);
   transition:transform .22s cubic-bezier(.2,1.4,.4,1),opacity .16s ease;
 }
 #stampMark.on{transform:translate(-50%,-50%) rotate(-11deg) scale(1);opacity:1}
@@ -142,11 +138,11 @@ footer{
   padding:0 20px calc(env(safe-area-inset-bottom) + 12px);
   display:flex;justify-content:space-between;align-items:center;
 }
-.util{font-size:11.5px;color:#3E5866;opacity:.75;padding:8px 4px}
+.util{font-size:11.5px;color:var(--muted);padding:8px 4px}
 
-.modal{position:fixed;inset:0;background:rgba(14,28,36,.55);display:none;align-items:center;justify-content:center;padding:22px;z-index:60}
+.modal{position:fixed;inset:0;background:rgba(20,20,20,.5);display:none;align-items:center;justify-content:center;padding:22px;z-index:60}
 .modal.on{display:flex}
-.sheet{background:var(--card);border:1px solid var(--line);width:100%;max-width:400px;padding:22px;display:flex;flex-direction:column;gap:13px}
+.sheet{background:var(--paper);width:100%;max-width:400px;padding:22px;display:flex;flex-direction:column;gap:13px}
 .sheet h2{margin:0;font-size:17px;letter-spacing:-.02em}
 .sheet p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.6}
 textarea{width:100%;min-height:110px;padding:12px;border:1px solid var(--line);border-radius:2px;font:inherit;font-size:14px;resize:vertical;background:#fff;color:var(--ink)}
@@ -154,18 +150,14 @@ textarea:focus{outline:2px solid var(--ink);outline-offset:-1px}
 .note{font-size:11.5px;color:var(--muted);min-height:16px}
 input[type=file]{display:none}
 
-/* 가로모드 차단 — 이 게임은 정사각 보드가 전제라 세로에서만 굴린다 */
+/* 가로모드 차단 */
 #rotateGate{
-  position:fixed;inset:0;z-index:100;display:none;
-  background:var(--booth-deep);
-  flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:30px;text-align:center;
+  position:fixed;inset:0;z-index:100;display:none;background:var(--bg-center);
+  flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:30px;text-align:center;
 }
-#rotateGate .big{font-size:22px;font-weight:800;letter-spacing:-.02em}
-#rotateGate .small{font-size:13px;color:#26404C}
-#rotateGate .icon{font-size:40px;margin-bottom:6px}
-@media (orientation:landscape) and (max-height:520px){
-  #rotateGate{display:flex}
-}
+#rotateGate .big{font-size:21px;font-weight:800;letter-spacing:-.02em}
+#rotateGate .small{font-size:13px;color:var(--muted)}
+@media (orientation:landscape) and (max-height:520px){#rotateGate{display:flex}}
 </style>
 </head>
 <body>
@@ -179,15 +171,15 @@ input[type=file]{display:none}
   <!-- 시작 -->
   <section class="screen on" id="scIntro">
     <div class="slate">
-      <div class="glyph">◻︎</div>
-      <div class="cap">소중한 친구의 사진을 올려주세요.<br>여러 명이 나온 사진도 됩니다.<br>한꺼번에 망가집니다.</div>
+      <i></i><i></i><i></i><i></i>
+      <div class="cap">소중한 친구의 사진을 올려주세요.</div>
     </div>
     <div class="stack">
       <button class="btn" id="btnCamera">사진 찍기</button>
       <button class="btn ghost" id="btnAlbum">앨범에서 고르기</button>
     </div>
     <div class="status"><div class="sub">사진은 이 기기 밖으로 나가지 않습니다.</div></div>
-    <input type="file" id="fileCamera" accept="image/*" capture="environment">
+    <input type="file" id="fileCamera" accept="image/*" capture="user">
     <input type="file" id="fileAlbum" accept="image/*">
   </section>
 
@@ -202,33 +194,14 @@ input[type=file]{display:none}
       <div class="cropGuide"></div>
     </div>
     <div class="tools">
-      <button class="tool" id="btnRotL">↺ 왼쪽으로</button>
-      <button class="tool" id="btnRotR">오른쪽으로 ↻</button>
+      <button class="tool" id="btnRotL">↺ 회전</button>
+      <button class="tool" id="btnFlip" aria-pressed="false">좌우 반전</button>
+      <button class="tool" id="btnRotR">회전 ↻</button>
     </div>
     <div class="stack">
       <button class="btn" id="btnCropDone">이 얼굴로 하기</button>
       <button class="btn ghost" id="btnCropBack">다른 사진 고르기</button>
     </div>
-  </section>
-
-  <!-- 난이도 -->
-  <section class="screen" id="scLevel">
-    <div class="status"><div class="line">얼마나 망가뜨릴까요?</div></div>
-    <div class="levels">
-      <button class="level" data-n="3" aria-pressed="false">
-        <span class="n mono">3 × 3</span>
-        <span><span class="t">살짝 구겨짐</span><span class="d">아직 사람으로 보입니다</span></span>
-      </button>
-      <button class="level" data-n="4" aria-pressed="true">
-        <span class="n mono">4 × 4</span>
-        <span><span class="t">얼굴 붕괴</span><span class="d">권장합니다</span></span>
-      </button>
-      <button class="level" data-n="5" aria-pressed="false">
-        <span class="n mono">5 × 5</span>
-        <span><span class="t">신원 불명</span><span class="d">책임지지 않습니다</span></span>
-      </button>
-    </div>
-    <div class="stack"><button class="btn" id="btnShatter">시작</button></div>
   </section>
 
   <!-- 보드: 해체 · 퍼즐 · 결과 공용 -->
@@ -246,15 +219,15 @@ input[type=file]{display:none}
 </main>
 
 <footer>
-  <button class="util" id="btnContact">개발자에게 항의</button>
+  <button class="util" id="btnContact">개발자에게 문의</button>
   <button class="util" id="btnRestart" style="visibility:hidden">처음으로</button>
 </footer>
 
 <div class="modal" id="modalContact">
   <div class="sheet">
-    <h2>개발자에게 항의</h2>
+    <h2>개발자에게 문의</h2>
     <p>사진은 전송되지 않습니다. 적어주신 내용만 전달됩니다.</p>
-    <textarea id="contactText" placeholder="무엇이 마음에 안 드셨는지 적어주세요."></textarea>
+    <textarea id="contactText" placeholder="불편한 점이나 제안을 적어주세요."></textarea>
     <div class="note" id="contactNote"></div>
     <div class="row">
       <button class="btn ghost" id="btnContactClose">닫기</button>
@@ -264,45 +237,42 @@ input[type=file]{display:none}
 </div>
 
 <div id="rotateGate">
-  <div class="icon">◱</div>
   <div class="big">얼굴이 누웠습니다.</div>
   <div class="small">화면을 세로로 돌려주세요.</div>
 </div>
 
 <script>
 /* =========================================================
-   내 얼굴 돌려줘 v1.0.0
+   내 얼굴 돌려줘 v1.1.0
    저장소 없음 — 사진은 이 기기 밖으로 나가지 않는다.
-   2차 예정: storage.js(Supabase 1회용 링크) + 피해자 라인 + GIF
+   2차 예정: Supabase 1회용 링크(게임 종료 시 삭제 + 1시간 만료)
    ========================================================= */
 
 /* ---------- 설정값 ---------- */
-const APP_VERSION    = 'v1.0.0';
-const CROP_SIZE_PX   = 800;   // 크롭 결과 캔버스 한 변, 단위: px
-const SHARE_PAD_PX   = 130;   // 공유 이미지 하단 라벨 높이, 단위: px
-const GAP_PX         = 3;     // 조각 사이 간격, 단위: px
-const HOLD_MS        = 1000;  // 원본 노출 시간, 단위: ms
-const SCATTER_MS     = 900;   // 흩어짐 지속, 단위: ms
-const SETTLE_MS      = 480;   // 착지 후 대기, 단위: ms
-const MAX_ZOOM       = 6;     // 크롭 최대 확대 배율
-const CONTACT_CAP    = 5;     // 기기당 하루 문의 상한, 단위: 건
+const APP_VERSION    = 'v1.1.0';
+const N              = 4;        // 격자 한 변, 단위: 칸
+const BLANK          = N - 1;    // 빠지는 조각 = 우측 상단
+const SHUFFLE_MOVES  = 160;      // 섞기 이동 수, 단위: 회. 낮출수록 쉬워진다
+const CROP_SIZE_PX   = 800;      // 크롭 결과 한 변, 단위: px
+const SHARE_PAD_PX   = 130;      // 공유 이미지 하단 라벨 높이, 단위: px
+const GAP_PX         = 2;        // 조각 간격, 단위: px
+const HOLD_MS        = 1000;     // 원본 노출, 단위: ms
+const VANISH_MS      = 450;      // 한 조각 사라짐, 단위: ms
+const SCATTER_MS     = 800;      // 흩어짐, 단위: ms
+const SETTLE_MS      = 480;      // 착지 대기, 단위: ms
+const MAX_ZOOM       = 6;        // 크롭 최대 확대 배율
+const CONTACT_CAP    = 5;        // 기기당 하루 문의 상한, 단위: 건
 
 // EmailJS — 배포 전에 채운다. 비어 있으면 문의 전송이 꺼진다.
 const EMAILJS = { publicKey:'', serviceId:'', templateId:'' };
 
 /* ---------- 상태 ---------- */
 const S = {
-  scene  : 'intro',
-  srcBmp : null,   // 원본 ImageBitmap
-  viewCv : null,   // 회전 반영된 표시용 canvas
-  cropCv : null,   // 크롭 결과 canvas
-  rot    : 0,      // 사용자 회전 각도, 단위: deg (0/90/180/270)
-  n      : 4,
-  order  : [],     // order[slot] = pieceIndex
-  pieces : [],
-  sel    : -1,
-  gap    : GAP_PX,
-  crop   : { scale:1, base:1, tx:0, ty:0 }
+  scene:'intro', srcBmp:null, viewCv:null, cropCv:null,
+  rot:0, flip:false,
+  order:[],      // order[slot] = pieceIndex
+  pieces:[], gap:GAP_PX, solved:false, busy:false,
+  crop:{ scale:1, base:1, tx:0, ty:0 }
 };
 
 const $ = id => document.getElementById(id);
@@ -314,66 +284,57 @@ let frameSize = 0;
 /* ---------- 화면 전환 ---------- */
 function show(name){
   S.scene = name;
-  const map = { intro:'scIntro', crop:'scCrop', level:'scLevel',
-                shatter:'scBoard', play:'scBoard', done:'scBoard' };
-  ['scIntro','scCrop','scLevel','scBoard']
-    .forEach(id => $(id).classList.toggle('on', map[name] === id));
+  const map = { intro:'scIntro', crop:'scCrop', shatter:'scBoard', play:'scBoard', done:'scBoard' };
+  ['scIntro','scCrop','scBoard'].forEach(id => $(id).classList.toggle('on', map[name] === id));
   $('btnRestart').style.visibility = (name === 'intro') ? 'hidden' : 'visible';
 }
-function setLine(line, sub){
-  $('boardLine').textContent = line;
-  $('boardSub').textContent = sub || '';
-}
+function setLine(line, sub){ $('boardLine').textContent = line; $('boardSub').textContent = sub || ''; }
 function setActions(list){
-  const wrap = $('boardActions');
-  wrap.innerHTML = '';
+  const wrap = $('boardActions'); wrap.innerHTML = '';
   list.forEach(([label, cls, fn]) => {
     const b = document.createElement('button');
-    b.className = 'btn ' + (cls || '');
-    b.textContent = label; b.onclick = fn;
+    b.className = 'btn ' + (cls || ''); b.textContent = label; b.onclick = fn;
     wrap.appendChild(b);
   });
 }
 
-/* ---------- 사진 읽기 ----------
-   imageOrientation:'from-image' 이 EXIF 회전 태그를 반영한다.
-   EXIF가 없거나 틀린 사진은 크롭 화면의 회전 버튼으로 사용자가 바로잡는다. */
+/* ---------- 사진 읽기 ---------- */
 async function loadFile(file){
   if(!file) return;
   let bmp;
-  try{
-    bmp = await createImageBitmap(file, { imageOrientation:'from-image' });
-  }catch(e){
-    bmp = await createImageBitmap(file);
-  }
-  S.srcBmp = bmp;
-  S.rot = 0;
-  rebuildView();
+  try{ bmp = await createImageBitmap(file, { imageOrientation:'from-image' }); }
+  catch(e){ bmp = await createImageBitmap(file); }
+  S.srcBmp = bmp; S.rot = 0; S.flip = false;
+  $('btnFlip').setAttribute('aria-pressed', 'false');
+  // 화면을 먼저 켜야 프레임 크기를 잴 수 있다 (v1.0.0 버그: 순서가 반대였다)
   show('crop');
+  rebuildView();
   $('docNo').textContent = 'no. ' + Math.random().toString(36).slice(2,8).toUpperCase();
 }
 
-/* 회전을 반영한 표시용 canvas를 다시 만든다 */
+/* 회전·반전을 반영한 표시용 canvas */
 function rebuildView(){
-  const b = S.srcBmp, r = S.rot;
-  const swap = (r === 90 || r === 270);
+  frameSize = cropFrame.clientWidth;
+  if(!frameSize){ requestAnimationFrame(rebuildView); return; }
+
+  const b = S.srcBmp, r = S.rot, swap = (r === 90 || r === 270);
   const cv = document.createElement('canvas');
   cv.width  = swap ? b.height : b.width;
   cv.height = swap ? b.width  : b.height;
   const ctx = cv.getContext('2d');
   ctx.translate(cv.width / 2, cv.height / 2);
+  if(S.flip) ctx.scale(-1, 1);          // 회전된 화면 기준 좌우 반전
   ctx.rotate(r * Math.PI / 180);
   ctx.drawImage(b, -b.width / 2, -b.height / 2);
   S.viewCv = cv;
 
   cropImg.src = cv.toDataURL('image/jpeg', .92);
-  cropImg.style.width  = cv.width + 'px';
+  cropImg.style.width = cv.width + 'px';
   cropImg.style.height = cv.height + 'px';
 
-  frameSize = cropFrame.clientWidth;
   const base = Math.max(frameSize / cv.width, frameSize / cv.height);
   S.crop.base = base; S.crop.scale = base;
-  S.crop.tx = (frameSize - cv.width  * base) / 2;
+  S.crop.tx = (frameSize - cv.width * base) / 2;
   S.crop.ty = (frameSize - cv.height * base) / 2;
   applyCrop();
 }
@@ -386,43 +347,35 @@ function clampCrop(){
 }
 function applyCrop(){
   clampCrop();
-  cropImg.style.transform =
-    `translate(${S.crop.tx}px, ${S.crop.ty}px) scale(${S.crop.scale})`;
+  cropImg.style.transform = `translate(${S.crop.tx}px, ${S.crop.ty}px) scale(${S.crop.scale})`;
 }
 
 const ptrs = new Map();
 let pinch0 = null;
-
 function snapshotPinch(){
   const [a,b] = [...ptrs.values()];
   const r = cropFrame.getBoundingClientRect();
-  return {
-    dist:Math.hypot(a.x-b.x, a.y-b.y),
-    cx:(a.x+b.x)/2 - r.left, cy:(a.y+b.y)/2 - r.top,
-    scale:S.crop.scale, tx:S.crop.tx, ty:S.crop.ty
-  };
+  return { dist:Math.hypot(a.x-b.x, a.y-b.y),
+           cx:(a.x+b.x)/2 - r.left, cy:(a.y+b.y)/2 - r.top,
+           scale:S.crop.scale, tx:S.crop.tx, ty:S.crop.ty };
 }
 function zoomAt(target, cx, cy, from){
   const k = target / from.scale;
   S.crop.tx = cx - (cx - from.tx) * k;
   S.crop.ty = cy - (cy - from.ty) * k;
-  S.crop.scale = target;
-  applyCrop();
+  S.crop.scale = target; applyCrop();
 }
-
 cropFrame.addEventListener('pointerdown', e => {
   cropFrame.setPointerCapture(e.pointerId);
   ptrs.set(e.pointerId, { x:e.clientX, y:e.clientY });
   if(ptrs.size === 2) pinch0 = snapshotPinch();
 });
 cropFrame.addEventListener('pointermove', e => {
-  if(!ptrs.has(e.pointerId)) return;
+  if(!ptrs.has(e.pointerId) || !S.viewCv) return;
   const prev = ptrs.get(e.pointerId);
   ptrs.set(e.pointerId, { x:e.clientX, y:e.clientY });
   if(ptrs.size === 1){
-    S.crop.tx += e.clientX - prev.x;
-    S.crop.ty += e.clientY - prev.y;
-    applyCrop();
+    S.crop.tx += e.clientX - prev.x; S.crop.ty += e.clientY - prev.y; applyCrop();
   }else if(ptrs.size === 2 && pinch0){
     const now = snapshotPinch();
     const target = Math.min(S.crop.base * MAX_ZOOM,
@@ -432,9 +385,9 @@ cropFrame.addEventListener('pointermove', e => {
 });
 ['pointerup','pointercancel','pointerleave'].forEach(t =>
   cropFrame.addEventListener(t, e => { ptrs.delete(e.pointerId); pinch0 = null; }));
-
 cropFrame.addEventListener('wheel', e => {
   e.preventDefault();
+  if(!S.viewCv) return;
   const r = cropFrame.getBoundingClientRect();
   const target = Math.min(S.crop.base * MAX_ZOOM,
                  Math.max(S.crop.base, S.crop.scale * (e.deltaY < 0 ? 1.1 : .9)));
@@ -442,33 +395,41 @@ cropFrame.addEventListener('wheel', e => {
          { scale:S.crop.scale, tx:S.crop.tx, ty:S.crop.ty });
 }, { passive:false });
 
-/* 크롭 확정 — 원본 비율은 건드리지 않는다. 늘이면 다른 사람 얼굴이 된다. */
+/* 원본 비율은 건드리지 않는다. 자르기만 하고 늘이지 않는다. */
 function bakeCrop(){
   const s = S.crop.scale;
-  const sx = -S.crop.tx / s, sy = -S.crop.ty / s, side = frameSize / s;
   const cv = document.createElement('canvas');
   cv.width = cv.height = CROP_SIZE_PX;
   const ctx = cv.getContext('2d');
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(S.viewCv, sx, sy, side, side, 0, 0, CROP_SIZE_PX, CROP_SIZE_PX);
+  ctx.drawImage(S.viewCv, -S.crop.tx / s, -S.crop.ty / s, frameSize / s, frameSize / s,
+                0, 0, CROP_SIZE_PX, CROP_SIZE_PX);
   S.cropCv = cv;
 }
 
-/* ---------- 퍼즐 ---------- */
-const cellPx = () => (boardWrap.clientWidth - S.gap * (S.n - 1)) / S.n;
+/* ---------- 슬라이딩 퍼즐 ---------- */
+const cellPx = () => (boardWrap.clientWidth - S.gap * (N - 1)) / N;
+const isSolved = () => S.order.every((p, s) => p === s);
+const misplaced = order => order.filter((p, s) => p !== s && p !== BLANK).length;
+
+function neighbors(b){
+  const r = Math.floor(b / N), c = b % N, out = [];
+  if(r > 0) out.push(b - N);
+  if(r < N - 1) out.push(b + N);
+  if(c > 0) out.push(b - 1);
+  if(c < N - 1) out.push(b + 1);
+  return out;
+}
 
 function buildPieces(){
   board.innerHTML = ''; S.pieces = [];
   const url = S.cropCv.toDataURL('image/jpeg', .9);
-  const cell = cellPx();
-  for(let i = 0; i < S.n * S.n; i++){
+  for(let i = 0; i < N * N; i++){
     const el = document.createElement('div');
     el.className = 'piece';
-    el.style.width = el.style.height = cell + 'px';
     el.style.backgroundImage = `url(${url})`;
     el.onclick = () => onPieceTap(i);
-    board.appendChild(el);
-    S.pieces.push(el);
+    board.appendChild(el); S.pieces.push(el);
   }
   S.order = S.pieces.map((_, i) => i);
   layout(false);
@@ -480,52 +441,58 @@ function layout(animate = true){
   S.order.forEach((piece, slot) => {
     const el = S.pieces[piece];
     el.style.width = el.style.height = cell + 'px';
-    el.style.backgroundSize = `${cell * S.n}px ${cell * S.n}px`;
-    el.style.backgroundPosition =
-      `${-(piece % S.n) * cell}px ${-Math.floor(piece / S.n) * cell}px`;
-    el.style.transform =
-      `translate(${(slot % S.n) * step}px, ${Math.floor(slot / S.n) * step}px)`;
+    el.style.backgroundSize = `${cell * N}px ${cell * N}px`;
+    el.style.backgroundPosition = `${-(piece % N) * cell}px ${-Math.floor(piece / N) * cell}px`;
+    el.style.transform = `translate(${(slot % N) * step}px, ${Math.floor(slot / N) * step}px)`;
   });
-  if(!animate) requestAnimationFrame(() =>
-    S.pieces.forEach(el => el.style.transition = ''));
+  if(!animate) requestAnimationFrame(() => S.pieces.forEach(el => el.style.transition = ''));
 }
 
-/* 제자리에 남는 조각이 없도록 섞는다 */
+/* 완성 상태에서 빈칸을 무작위로 굴려 섞는다.
+   실제 이동만 거꾸로 밟으므로 언제나 풀 수 있는 배치가 나온다. */
 function shuffleOrder(){
-  const n2 = S.n * S.n;
-  let arr;
-  for(let t = 0; t < 40; t++){
-    arr = [...Array(n2).keys()];
-    for(let i = n2 - 1; i > 0; i--){
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    if(arr.every((p, s) => p !== s)) break;
+  const order = [...Array(N * N).keys()];
+  let b = BLANK, prev = -1, moves = 0;
+  const need = Math.ceil((N * N - 1) * 0.7);
+  while(moves < SHUFFLE_MOVES || misplaced(order) < need){
+    const opts = neighbors(b).filter(x => x !== prev);
+    const t = opts[Math.floor(Math.random() * opts.length)];
+    [order[b], order[t]] = [order[t], order[b]];
+    prev = b; b = t; moves++;
+    if(moves > SHUFFLE_MOVES * 5) break;
   }
-  S.order = arr;
+  S.order = order;
 }
 
 async function runShatter(){
   show('shatter');
-  setLine('감사합니다.', '');
-  setActions([]);
+  S.solved = false; S.gap = GAP_PX; S.busy = true;
+  setLine('감사합니다.', ''); setActions([]);
   buildPieces();
   await wait(HOLD_MS);
 
+  // 1) 우측 상단 한 조각이 사라진다
+  S.pieces[BLANK].classList.add('gone');
+  await wait(VANISH_MS);
+
+  // 2) 나머지가 사방으로 튄다
   const bp = boardWrap.clientWidth;
-  S.pieces.forEach(el => {
-    const dx = (Math.random() - .5) * bp * .85;
-    const dy = (Math.random() - .5) * bp * .85;
-    el.style.transform += ` translate(${dx}px,${dy}px) rotate(${(Math.random()-.5)*70}deg)`;
+  S.pieces.forEach((el, i) => {
+    if(i === BLANK) return;
+    el.classList.add('flying');
+    el.style.transform += ` translate(${(Math.random()-.5)*bp*.8}px,${(Math.random()-.5)*bp*.8}px) rotate(${(Math.random()-.5)*60}deg)`;
     el.style.zIndex = Math.floor(Math.random() * 10);
   });
   if(navigator.vibrate) navigator.vibrate(30);
   await wait(SCATTER_MS);
 
+  // 3) 섞인 자리에 착지
   shuffleOrder();
   S.pieces.forEach(el => el.style.zIndex = '');
   layout(true);
   await wait(SETTLE_MS);
+  S.pieces.forEach(el => el.classList.remove('flying'));
+  S.busy = false;
 
   setLine('얼굴이 흩어졌습니다.', '');
   setActions([
@@ -536,76 +503,76 @@ async function runShatter(){
 
 function startPlay(){
   show('play');
-  S.sel = -1;
-  setLine('조각을 옮겨 얼굴을 되찾으세요.', '두 조각을 차례로 누르면 자리가 바뀝니다.');
+  setLine('조각을 밀어 얼굴을 되찾으세요.', '빈칸과 같은 줄의 조각을 누르면 밀려납니다.');
   setActions([
-    ['다시 흩기', 'ghost', reshuffle],
+    ['다시 섞기', 'ghost', reshuffle],
     ['포기하기', 'ghost', giveUp]
   ]);
 }
 
+/* 빈칸과 같은 행·열이면 사이 조각을 한꺼번에 민다 */
 function onPieceTap(piece){
-  if(S.scene !== 'play') return;
+  if(S.scene !== 'play' || S.busy || piece === BLANK) return;
   const slot = S.order.indexOf(piece);
-  if(S.sel === -1){
-    S.sel = slot; S.pieces[piece].classList.add('sel'); return;
+  let b = S.order.indexOf(BLANK);
+  const sr = Math.floor(slot / N), sc = slot % N, br = Math.floor(b / N), bc = b % N;
+  if(sr !== br && sc !== bc) return;
+  const step = (sr === br) ? (sc > bc ? 1 : -1) : (sr > br ? N : -N);
+  while(b !== slot){
+    const nb = b + step;
+    [S.order[b], S.order[nb]] = [S.order[nb], S.order[b]];
+    b = nb;
   }
-  if(S.sel === slot){
-    S.sel = -1; S.pieces[piece].classList.remove('sel'); return;
-  }
-  S.pieces[S.order[S.sel]].classList.remove('sel');
-  [S.order[S.sel], S.order[slot]] = [S.order[slot], S.order[S.sel]];
-  S.sel = -1;
   layout(true);
-  if(S.order.every((p, s) => p === s)) setTimeout(finish, 460);
+  if(isSolved()){ S.busy = true; setTimeout(finish, 260); }
 }
 
 function reshuffle(){
-  S.sel = -1;
-  S.pieces.forEach(el => el.classList.remove('sel'));
+  if(S.busy) return;
   shuffleOrder(); layout(true);
   if(navigator.vibrate) navigator.vibrate(20);
 }
 
-/* 완성: 간격을 0으로 좁혀 한 장으로 되돌린 뒤 도장 */
+/* 완성: 사라졌던 조각이 돌아오고, 간격이 닫히고, 도장 */
 async function finish(){
-  show('done');
+  show('done'); S.solved = true;
+  S.pieces[BLANK].classList.remove('gone');
+  await wait(380);
   S.pieces.forEach(el => el.classList.add('locked'));
   S.gap = 0; layout(true);
-  if(navigator.vibrate) navigator.vibrate([25,60,90]);
-  await wait(520);
+  if(navigator.vibrate) navigator.vibrate([25, 60, 90]);
+  await wait(560);
+  S.busy = false;
   setLine('얼굴을 되찾았습니다.', '');
   stamp('본인 확인 완료');
   setActions([
     ['이미지 저장하기', 'stamp', () => exportImage('얼굴을 되찾았습니다')],
-    ['다른 얼굴 망가뜨리기', 'ghost', restart]
+    ['다른 얼굴 가져오기', 'ghost', restart]
   ]);
 }
 
 function giveUp(){
+  if(S.busy) return;
   show('done');
-  S.sel = -1;
-  S.pieces.forEach(el => el.classList.remove('sel'));
-  const left = S.order.filter((p, s) => p !== s).length;
+  const left = misplaced(S.order);
   setLine('이 얼굴은 이대로 살아갑니다.', `제자리를 못 찾은 조각 ${left}개`);
   stamp('복구 실패');
   setActions([
     ['이미지 저장하기', 'stamp', () => exportImage(`복구 실패 — 남은 조각 ${left}개`)],
-    ['다른 얼굴 망가뜨리기', 'ghost', restart]
+    ['다른 얼굴 가져오기', 'ghost', restart]
   ]);
 }
 
 function stamp(text){
   const el = $('stampMark');
-  el.textContent = text;
-  el.classList.remove('on');
+  el.textContent = text; el.classList.remove('on');
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('on')));
 }
 
 function restart(){
   $('stampMark').classList.remove('on');
-  S.gap = GAP_PX; S.srcBmp = null; S.viewCv = null; S.cropCv = null;
-  S.sel = -1; S.rot = 0;
+  Object.assign(S, { srcBmp:null, viewCv:null, cropCv:null, rot:0, flip:false,
+                     gap:GAP_PX, solved:false, busy:false, pieces:[], order:[] });
   board.innerHTML = '';
   $('fileCamera').value = ''; $('fileAlbum').value = '';
   show('intro');
@@ -617,28 +584,26 @@ function renderShareCanvas(caption){
   const cv = document.createElement('canvas');
   cv.width = size; cv.height = size + SHARE_PAD_PX;
   const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, cv.width, cv.height);
 
-  ctx.fillStyle = '#FCFCFB';
-  ctx.fillRect(0, 0, cv.width, cv.height);
-  ctx.fillStyle = '#2A3941';
-  ctx.fillRect(0, 0, size, size);
-
-  const gapS = Math.round(size * .006);
-  const cell = (size - gapS * (S.n - 1)) / S.n;
-  const src  = size / S.n;
-  S.order.forEach((piece, slot) => {
-    ctx.drawImage(S.cropCv,
-      (piece % S.n) * src, Math.floor(piece / S.n) * src, src, src,
-      (slot % S.n) * (cell + gapS), Math.floor(slot / S.n) * (cell + gapS), cell, cell);
-  });
+  if(S.solved){
+    ctx.drawImage(S.cropCv, 0, 0, size, size);
+  }else{
+    ctx.fillStyle = '#2B2B2B'; ctx.fillRect(0, 0, size, size);
+    const g = Math.round(size * .005), cell = (size - g * (N - 1)) / N, src = size / N;
+    S.order.forEach((piece, slot) => {
+      if(piece === BLANK) return;
+      ctx.drawImage(S.cropCv,
+        (piece % N) * src, Math.floor(piece / N) * src, src, src,
+        (slot % N) * (cell + g), Math.floor(slot / N) * (cell + g), cell, cell);
+    });
+  }
 
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#16232B';
-  ctx.font = '700 34px Pretendard, sans-serif';
-  ctx.fillText(caption, 28, size + 46);
-  ctx.fillStyle = '#5F7784';
-  ctx.font = '400 24px Pretendard, sans-serif';
-  ctx.fillText('내 얼굴 돌려줘', 28, size + 88);
+  ctx.fillStyle = '#141414'; ctx.font = '700 34px Pretendard, sans-serif';
+  ctx.fillText(caption, 28, size + 48);
+  ctx.fillStyle = '#6B6B66'; ctx.font = '400 24px Pretendard, sans-serif';
+  ctx.fillText('내 얼굴 돌려줘', 28, size + 90);
   return cv;
 }
 
@@ -651,16 +616,16 @@ async function exportImage(caption){
     catch(e){ if(e.name === 'AbortError') return; }
   }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'face.jpg';
-  a.click();
+  a.href = URL.createObjectURL(blob); a.download = 'face.jpg'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 /* ---------- 문의 ---------- */
 function contactCount(){
-  const key = 'contact-' + new Date().toISOString().slice(0,10);
-  return { key, n: parseInt(localStorage.getItem(key) || '0', 10) };
+  const key = 'contact-' + new Date().toISOString().slice(0, 10);
+  let n = 0;
+  try{ n = parseInt(localStorage.getItem(key) || '0', 10); }catch(e){}
+  return { key, n };
 }
 $('btnContact').onclick = () => {
   $('contactNote').textContent = EMAILJS.publicKey ? '' : '전송 설정이 아직 연결되지 않았습니다.';
@@ -672,19 +637,18 @@ $('btnContactSend').onclick = async () => {
   if(!text){ $('contactNote').textContent = '내용을 적어주세요.'; return; }
   if(!EMAILJS.publicKey){ $('contactNote').textContent = '전송 설정이 아직 연결되지 않았습니다.'; return; }
   const { key, n } = contactCount();
-  if(n >= CONTACT_CAP){ $('contactNote').textContent = '오늘은 충분히 항의하셨습니다.'; return; }
+  if(n >= CONTACT_CAP){ $('contactNote').textContent = '오늘은 더 보낼 수 없습니다. 내일 다시 시도해주세요.'; return; }
   $('contactNote').textContent = '보내는 중...';
   try{
-    await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method:'POST', headers:{ 'Content-Type':'application/json' },
       body: JSON.stringify({
-        service_id: EMAILJS.serviceId,
-        template_id: EMAILJS.templateId,
-        user_id: EMAILJS.publicKey,
+        service_id:EMAILJS.serviceId, template_id:EMAILJS.templateId, user_id:EMAILJS.publicKey,
         template_params:{ message:text, app:APP_VERSION, ua:navigator.userAgent }
       })
     });
-    localStorage.setItem(key, String(n + 1));
+    if(!res.ok) throw new Error(res.status);
+    try{ localStorage.setItem(key, String(n + 1)); }catch(e){}
     $('contactNote').textContent = '전달했습니다.';
     $('contactText').value = '';
     setTimeout(() => $('modalContact').classList.remove('on'), 900);
@@ -699,17 +663,14 @@ $('btnAlbum').onclick  = () => $('fileAlbum').click();
 $('fileCamera').onchange = e => loadFile(e.target.files[0]);
 $('fileAlbum').onchange  = e => loadFile(e.target.files[0]);
 $('btnRotL').onclick = () => { S.rot = (S.rot + 270) % 360; rebuildView(); };
-$('btnRotR').onclick = () => { S.rot = (S.rot +  90) % 360; rebuildView(); };
+$('btnRotR').onclick = () => { S.rot = (S.rot + 90) % 360; rebuildView(); };
+$('btnFlip').onclick = () => {
+  S.flip = !S.flip;
+  $('btnFlip').setAttribute('aria-pressed', String(S.flip));
+  rebuildView();
+};
 $('btnCropBack').onclick = () => show('intro');
-$('btnCropDone').onclick = () => { bakeCrop(); show('level'); };
-document.querySelectorAll('.level').forEach(b => {
-  b.onclick = () => {
-    document.querySelectorAll('.level').forEach(x => x.setAttribute('aria-pressed','false'));
-    b.setAttribute('aria-pressed','true');
-    S.n = parseInt(b.dataset.n, 10);
-  };
-});
-$('btnShatter').onclick = runShatter;
+$('btnCropDone').onclick = () => { bakeCrop(); runShatter(); };
 $('btnRestart').onclick = restart;
 
 window.addEventListener('resize', () => {
@@ -717,14 +678,11 @@ window.addEventListener('resize', () => {
   if(S.pieces.length) layout(false);
 });
 
-/* 설치형 PWA에서만 세로 잠금이 먹는다. 브라우저 탭은 rotateGate가 막는다. */
 if(screen.orientation && screen.orientation.lock){
   screen.orientation.lock('portrait').catch(() => {});
 }
-
 if('serviceWorker' in navigator){
-  window.addEventListener('load', () =>
-    navigator.serviceWorker.register('sw.js').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 </script>
 </body>
