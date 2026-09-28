@@ -113,6 +113,8 @@ main{
   will-change:transform;
 }
 .piece.gone{opacity:0;pointer-events:none}
+.piece.picked{box-shadow:inset 0 0 0 3px var(--stamp)}
+#scBoard.picking .piece{cursor:pointer}
 .piece.flying{transition-duration:.42s}
 .piece.locked{transition-duration:.6s}
 @media (prefers-reduced-motion:reduce){.piece{transition-duration:.01ms !important}}
@@ -238,24 +240,25 @@ input[type=file]{display:none}
 
 <script>
 /* =========================================================
-   내 얼굴 돌려줘 v1.3.0
+   내 얼굴 돌려줘 v1.4.0
    저장소 없음 — 사진은 이 기기 밖으로 나가지 않는다.
    2차 예정: Supabase 1회용 링크(게임 종료 시 삭제 + 1시간 만료)
    ========================================================= */
 
 /* ---------- 설정값 ---------- */
-const APP_VERSION    = 'v1.3.0';
+const APP_NAME       = '내 얼굴 돌려줘';
+const APP_VERSION    = 'v1.4.0';
 const COLS           = 3;        // 가로 칸 수, 단위: 칸
 const ROWS           = 4;        // 세로 칸 수, 단위: 칸 (v1.3.0: 3×3 → 3×4 세로형)
 const CELLS          = COLS * ROWS;
-const BLANK          = COLS - 1; // 빠지는 조각 = 우측 상단
+const BLANK_DEFAULT  = COLS - 1; // 빠지는 조각 기본값(우측 상단). 실제 값은 사용자가 고른 S.blank
 const SHUFFLE_MOVES  = 200;      // 섞기 이동 수, 단위: 회. 낮출수록 쉬워진다
 const CELL_PX        = 240;      // 결과 이미지의 조각 한 변, 단위: px
 const CROP_W_PX      = CELL_PX * COLS;   // 720 px
 const CROP_H_PX      = CELL_PX * ROWS;   // 960 px (조각은 정사각, 전체는 3:4)
 const SHARE_PAD_PX   = 130;      // 공유 이미지 하단 라벨 높이, 단위: px
 const GAP_PX         = 2;        // 조각 간격, 단위: px
-const HOLD_MS        = 1000;     // 원본 노출, 단위: ms
+const PICK_HOLD_MS   = 450;      // 조각을 고른 뒤 사라지기까지, 단위: ms
 const VANISH_MS      = 450;      // 한 조각 사라짐, 단위: ms
 const SCATTER_MS     = 800;      // 흩어짐, 단위: ms
 const SETTLE_MS      = 480;      // 착지 대기, 단위: ms
@@ -264,7 +267,8 @@ const CONTACT_CAP    = 5;        // 기기당 하루 문의 상한, 단위: 건
 const CAMERA_MIRROR  = true;     // 카메라로 찍은 사진을 촬영 화면(거울상)과 같게 보여줌
 
 // EmailJS — 배포 전에 채운다. 비어 있으면 문의 전송이 꺼진다.
-const EMAILJS = { publicKey:'', serviceId:'', templateId:'' };
+// 공용 문의 템플릿(gorf-technology 앱 공통). 공개돼도 되는 값만 둔다. Private Key는 절대 넣지 않는다
+const EMAILJS = { publicKey:'Qck7jS8TjdYKD11mf', serviceId:'service_7t9mj84', templateId:'template_b93zwli' };
 
 /* ---------- 상태 ---------- */
 const S = {
@@ -272,6 +276,7 @@ const S = {
   rot:0, flip:false,
   order:[],      // order[slot] = pieceIndex
   pieces:[], gap:GAP_PX, solved:false, busy:false,
+  blank:BLANK_DEFAULT,   // 빠진 조각 번호 (2차 링크의 b= 값이 된다)
   crop:{ scale:1, base:1, tx:0, ty:0 }
 };
 
@@ -295,7 +300,8 @@ document.documentElement.style.setProperty('--ratio', `calc(${COLS} / ${ROWS})`)
 /* ---------- 화면 전환 ---------- */
 function show(name){
   S.scene = name;
-  const map = { intro:'scIntro', crop:'scCrop', shatter:'scBoard', play:'scBoard', done:'scBoard' };
+  const map = { intro:'scIntro', crop:'scCrop', pick:'scBoard', shatter:'scBoard', play:'scBoard', done:'scBoard' };
+  $('scBoard').classList.toggle('picking', name === 'pick');
   ['scIntro','scCrop','scBoard'].forEach(id => $(id).classList.toggle('on', map[name] === id));
   $('btnRestart').style.visibility = (name === 'intro') ? 'hidden' : 'visible';
 }
@@ -423,7 +429,7 @@ function bakeCrop(){
 /* ---------- 슬라이딩 퍼즐 ---------- */
 const cellPx = () => (boardWrap.clientWidth - S.gap * (COLS - 1)) / COLS;
 const isSolved = () => S.order.every((p, s) => p === s);
-const misplaced = order => order.filter((p, s) => p !== s && p !== BLANK).length;
+const misplaced = order => order.filter((p, s) => p !== s && p !== S.blank).length;
 
 function neighbors(b){
   const r = Math.floor(b / COLS), c = b % COLS, out = [];
@@ -465,7 +471,7 @@ function layout(animate = true){
    실제 이동만 거꾸로 밟으므로 언제나 풀 수 있는 배치가 나온다. */
 function shuffleOrder(){
   const order = [...Array(CELLS).keys()];
-  let b = BLANK, prev = -1, moves = 0;
+  let b = S.blank, prev = -1, moves = 0;
   const need = Math.ceil((CELLS - 1) * 0.7);
   while(moves < SHUFFLE_MOVES || misplaced(order) < need){
     const opts = neighbors(b).filter(x => x !== prev);
@@ -477,21 +483,41 @@ function shuffleOrder(){
   S.order = order;
 }
 
+/* 크롭 직후: 완성된 얼굴을 보여주고 가져갈 조각 하나를 고르게 한다 */
+function runPick(){
+  show('pick');
+  S.solved = false; S.gap = GAP_PX; S.busy = false;
+  buildPieces();
+  setLine('가져갈 조각을 고르세요.', '고른 조각은 얼굴을 되찾을 때까지 보관합니다.');
+  setActions([
+    ['아무거나 가져가기', 'ghost', () => pickPiece(Math.floor(Math.random() * CELLS))],
+    ['사진 다시 맞추기', 'ghost', () => show('crop')]
+  ]);
+}
+
+async function pickPiece(i){
+  if(S.scene !== 'pick' || S.busy) return;
+  S.blank = i; S.busy = true;
+  S.pieces[i].classList.add('picked');
+  if(navigator.vibrate) navigator.vibrate(15);
+  setLine('감사합니다.', ''); setActions([]);
+  await wait(PICK_HOLD_MS);
+  S.pieces[i].classList.remove('picked');
+  runShatter();
+}
+
 async function runShatter(){
   show('shatter');
-  S.solved = false; S.gap = GAP_PX; S.busy = true;
-  setLine('감사합니다.', ''); setActions([]);
-  buildPieces();
-  await wait(HOLD_MS);
+  S.busy = true;
 
-  // 1) 우측 상단 한 조각이 사라진다
-  S.pieces[BLANK].classList.add('gone');
+  // 1) 고른 한 조각이 사라진다
+  S.pieces[S.blank].classList.add('gone');
   await wait(VANISH_MS);
 
   // 2) 나머지가 사방으로 튄다
   const bp = boardWrap.clientWidth;
   S.pieces.forEach((el, i) => {
-    if(i === BLANK) return;
+    if(i === S.blank) return;
     el.classList.add('flying');
     el.style.transform += ` translate(${(Math.random()-.5)*bp*.8}px,${(Math.random()-.5)*bp*.8}px) rotate(${(Math.random()-.5)*60}deg)`;
     el.style.zIndex = Math.floor(Math.random() * 10);
@@ -525,9 +551,10 @@ function startPlay(){
 
 /* 빈칸과 같은 행·열이면 사이 조각을 한꺼번에 민다 */
 function onPieceTap(piece){
-  if(S.scene !== 'play' || S.busy || piece === BLANK) return;
+  if(S.scene === 'pick'){ pickPiece(piece); return; }
+  if(S.scene !== 'play' || S.busy || piece === S.blank) return;
   const slot = S.order.indexOf(piece);
-  let b = S.order.indexOf(BLANK);
+  let b = S.order.indexOf(S.blank);
   const sr = Math.floor(slot / COLS), sc = slot % COLS, br = Math.floor(b / COLS), bc = b % COLS;
   if(sr !== br && sc !== bc) return;
   const step = (sr === br) ? (sc > bc ? 1 : -1) : (sr > br ? COLS : -COLS);
@@ -549,7 +576,7 @@ function reshuffle(){
 /* 완성: 사라졌던 조각이 돌아오고, 간격이 닫히고, 도장 */
 async function finish(){
   show('done'); S.solved = true;
-  S.pieces[BLANK].classList.remove('gone');
+  S.pieces[S.blank].classList.remove('gone');
   await wait(380);
   S.pieces.forEach(el => el.classList.add('locked'));
   S.gap = 0; layout(true);
@@ -606,7 +633,7 @@ function renderShareCanvas(caption){
     // 조각은 정사각: 가로 기준으로 칸 크기를 정하고 세로도 같은 간격으로 쌓는다
     const g = Math.round(W * .005), cell = (W - g * (COLS - 1)) / COLS;
     S.order.forEach((piece, slot) => {
-      if(piece === BLANK) return;
+      if(piece === S.blank) return;
       ctx.drawImage(S.cropCv,
         (piece % COLS) * CELL_PX, Math.floor(piece / COLS) * CELL_PX, CELL_PX, CELL_PX,
         (slot % COLS) * (cell + g), Math.floor(slot / COLS) * (cell + g), cell, cell);
@@ -658,7 +685,7 @@ $('btnContactSend').onclick = async () => {
       method:'POST', headers:{ 'Content-Type':'application/json' },
       body: JSON.stringify({
         service_id:EMAILJS.serviceId, template_id:EMAILJS.templateId, user_id:EMAILJS.publicKey,
-        template_params:{ message:text, app:APP_VERSION, ua:navigator.userAgent }
+        template_params:{ message:text, app:`${APP_NAME} ${APP_VERSION}`, ua:navigator.userAgent }
       })
     });
     if(!res.ok) throw new Error(res.status);
@@ -684,7 +711,7 @@ $('btnFlip').onclick = () => {
   rebuildView();
 };
 $('btnCropBack').onclick = () => show('intro');
-$('btnCropDone').onclick = () => { bakeCrop(); runShatter(); };
+$('btnCropDone').onclick = () => { bakeCrop(); runPick(); };
 $('btnRestart').onclick = restart;
 
 window.addEventListener('resize', () => {
