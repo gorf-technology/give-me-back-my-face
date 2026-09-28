@@ -66,6 +66,9 @@ main{
   transition:transform .08s ease;
 }
 .btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.5;transform:none}
+.note.ok{color:var(--ink);font-weight:600}
+.note.err{color:var(--stamp)}
 .btn.ghost{background:rgba(255,255,255,.35);color:var(--ink);border:1px solid #8E8E88}
 .btn.stamp{background:var(--stamp);color:#fff}
 .btn:focus-visible,.tool:focus-visible,.util:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
@@ -240,14 +243,14 @@ input[type=file]{display:none}
 
 <script>
 /* =========================================================
-   내 얼굴 돌려줘 v1.4.0
+   내 얼굴 돌려줘 v1.4.1
    저장소 없음 — 사진은 이 기기 밖으로 나가지 않는다.
    2차 예정: Supabase 1회용 링크(게임 종료 시 삭제 + 1시간 만료)
    ========================================================= */
 
 /* ---------- 설정값 ---------- */
 const APP_NAME       = '내 얼굴 돌려줘';
-const APP_VERSION    = 'v1.4.0';
+const APP_VERSION    = 'v1.4.1';
 const COLS           = 3;        // 가로 칸 수, 단위: 칸
 const ROWS           = 4;        // 세로 칸 수, 단위: 칸 (v1.3.0: 3×3 → 3×4 세로형)
 const CELLS          = COLS * ROWS;
@@ -264,6 +267,7 @@ const SCATTER_MS     = 800;      // 흩어짐, 단위: ms
 const SETTLE_MS      = 480;      // 착지 대기, 단위: ms
 const MAX_ZOOM       = 6;        // 크롭 최대 확대 배율
 const CONTACT_CAP    = 5;        // 기기당 하루 문의 상한, 단위: 건
+const CONTACT_DONE_MS = 1800;    // '보냈습니다' 표시 후 창이 닫히기까지, 단위: ms
 const CAMERA_MIRROR  = true;     // 카메라로 찍은 사진을 촬영 화면(거울상)과 같게 보여줌
 
 // EmailJS — 배포 전에 채운다. 비어 있으면 문의 전송이 꺼진다.
@@ -668,18 +672,39 @@ function contactCount(){
   try{ n = parseInt(localStorage.getItem(key) || '0', 10); }catch(e){}
   return { key, n };
 }
+/* 문의: 보내는 동안 버튼을 잠가 중복 전송을 막고, 결과를 버튼과 문구 둘 다로 보여준다 */
+let contactSending = false;
+const sendBtn = $('btnContactSend');
+
+function contactUI(state, msg = ''){
+  const note = $('contactNote');
+  note.textContent = msg;
+  note.classList.toggle('ok',  state === 'done');
+  note.classList.toggle('err', state === 'error');
+  sendBtn.disabled = (state === 'sending' || state === 'done');
+  sendBtn.textContent = { sending:'보내는 중…', done:'보냈습니다', error:'다시 보내기' }[state] || '보내기';
+}
+
+function closeContact(){
+  $('modalContact').classList.remove('on');
+  if(!contactSending) contactUI('idle');
+}
+
 $('btnContact').onclick = () => {
-  $('contactNote').textContent = EMAILJS.publicKey ? '' : '전송 설정이 아직 연결되지 않았습니다.';
+  if(!contactSending) contactUI('idle', EMAILJS.publicKey ? '' : '전송 설정이 아직 연결되지 않았습니다.');
   $('modalContact').classList.add('on');
 };
-$('btnContactClose').onclick = () => $('modalContact').classList.remove('on');
-$('btnContactSend').onclick = async () => {
+$('btnContactClose').onclick = closeContact;
+sendBtn.onclick = async () => {
+  if(contactSending) return;                          // 연타 방지: 첫 탭 이후는 무시
   const text = $('contactText').value.trim();
-  if(!text){ $('contactNote').textContent = '내용을 적어주세요.'; return; }
-  if(!EMAILJS.publicKey){ $('contactNote').textContent = '전송 설정이 아직 연결되지 않았습니다.'; return; }
+  if(!text){ contactUI('idle', '내용을 적어주세요.'); return; }
+  if(!EMAILJS.publicKey){ contactUI('idle', '전송 설정이 아직 연결되지 않았습니다.'); return; }
   const { key, n } = contactCount();
-  if(n >= CONTACT_CAP){ $('contactNote').textContent = '오늘은 더 보낼 수 없습니다. 내일 다시 시도해주세요.'; return; }
-  $('contactNote').textContent = '보내는 중...';
+  if(n >= CONTACT_CAP){ contactUI('error', '오늘은 더 보낼 수 없습니다. 내일 다시 시도해주세요.'); sendBtn.disabled = true; return; }
+
+  contactSending = true;
+  contactUI('sending', '보내는 중입니다. 잠시만 기다려주세요.');
   try{
     const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method:'POST', headers:{ 'Content-Type':'application/json' },
@@ -690,11 +715,15 @@ $('btnContactSend').onclick = async () => {
     });
     if(!res.ok) throw new Error(res.status);
     try{ localStorage.setItem(key, String(n + 1)); }catch(e){}
-    $('contactNote').textContent = '전달했습니다.';
     $('contactText').value = '';
-    setTimeout(() => $('modalContact').classList.remove('on'), 900);
+    contactUI('done', '개발자에게 전달했습니다. 고맙습니다.');
+    if(navigator.vibrate) navigator.vibrate(20);
+    await wait(CONTACT_DONE_MS);
+    contactSending = false;
+    closeContact();
   }catch(e){
-    $('contactNote').textContent = '전송에 실패했습니다.';
+    contactSending = false;
+    contactUI('error', '전송에 실패했습니다. 잠시 뒤 다시 보내주세요.');
   }
 };
 
