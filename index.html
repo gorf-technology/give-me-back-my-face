@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#E4E4E1">
-<meta name="description" content="친구 얼굴을 조각내고 섞는 슬라이딩 퍼즐. 사진은 이 기기 밖으로 나가지 않습니다.">
+<meta name="description" content="친구 얼굴을 조각내고 섞는 슬라이딩 퍼즐.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="내 얼굴 돌려줘">
@@ -178,7 +178,7 @@ input[type=file]{display:none}
       <button class="btn" id="btnCamera">사진 찍기</button>
       <button class="btn ghost" id="btnAlbum">앨범에서 고르기</button>
     </div>
-    <div class="status"><div class="sub">사진은 이 기기 밖으로 나가지 않습니다.</div></div>
+    <div class="status"><div class="sub">링크를 만들 때만 사진이 올라가고, 끝나면 지워집니다.</div></div>
     <input type="file" id="fileCamera" accept="image/*" capture="user">
     <input type="file" id="fileAlbum" accept="image/*">
   </section>
@@ -236,6 +236,14 @@ input[type=file]{display:none}
   </div>
 </div>
 
+<div class="modal" id="modalArrive">
+  <div class="sheet">
+    <h2>누군가 당신의 얼굴을 흩어놨습니다</h2>
+    <p>조각을 옮겨 얼굴을 되찾으세요.</p>
+    <button class="btn stamp" id="btnArriveStart">복구 시작</button>
+  </div>
+</div>
+
 <div id="rotateGate">
   <div class="big">얼굴이 누웠습니다.</div>
   <div class="small">화면을 세로로 돌려주세요.</div>
@@ -243,15 +251,17 @@ input[type=file]{display:none}
 
 <script>
 /* =========================================================
-   내 얼굴 돌려줘 v1.5.0
+   내 얼굴 돌려줘 v2.0.0
+   v2.0.0: 링크 공유. 보내는 쪽이 섞은 배치 그대로 친구가 맞춘다.
+           사진은 Supabase Storage(공개 버킷 faces)에 올라가고, 받는 쪽 게임이 끝나면 삭제.
+           공개 버킷이어도 목록 조회·덮어쓰기·엉뚱한 이름 업로드는 RLS가 막는다. 방어선은 128 bit 난수 파일 이름
+           1시간 지난 링크는 앱이 만료 처리(열리는 순간 남은 파일도 삭제 시도).
    v1.5.0: 섞기를 '최단 18~22수 + 멀리 간 조각 3개 이상' 구간 재추출로 교체
-   저장소 없음 — 사진은 이 기기 밖으로 나가지 않는다.
-   2차 예정: Supabase 1회용 링크(게임 종료 시 삭제 + 1시간 만료)
    ========================================================= */
 
 /* ---------- 설정값 ---------- */
 const APP_NAME       = '내 얼굴 돌려줘';
-const APP_VERSION    = 'v1.5.0';
+const APP_VERSION    = 'v2.0.0';
 const COLS           = 3;        // 가로 칸 수, 단위: 칸
 const ROWS           = 4;        // 세로 칸 수, 단위: 칸 (v1.3.0: 3×3 → 3×4 세로형)
 const CELLS          = COLS * ROWS;
@@ -275,6 +285,17 @@ const MAX_ZOOM       = 6;        // 크롭 최대 확대 배율
 const CONTACT_CAP    = 5;        // 기기당 하루 문의 상한, 단위: 건
 const CONTACT_DONE_MS = 1800;    // '보냈습니다' 표시 후 창이 닫히기까지, 단위: ms
 const CAMERA_MIRROR  = true;     // 카메라로 찍은 사진을 촬영 화면(거울상)과 같게 보여줌
+const LINK_TTL_MS    = 60 * 60 * 1000;   // 링크 수명, 단위: ms (60 min × 60 s × 1000 ms = 3,600,000 ms)
+const UPLOAD_MAX_B   = 200 * 1024;       // 업로드 상한, 단위: B (200 KB × 1024 B/KB = 204,800 B). 버킷 설정과 같아야 한다
+const UPLOAD_QUALITY = [0.75, 0.65, 0.55, 0.45, 0.35]; // JPEG 품질 후보. 상한을 넘으면 다음 값으로 재인코딩
+const COPY_DONE_MS   = 1600;     // '복사했습니다' 표시 시간, 단위: ms
+
+// Supabase — 공개해도 되는 값만 둔다(publishable key). Secret key는 절대 넣지 않는다
+const SUPABASE = {
+  url:'https://buuoophntnmtsoswzysm.supabase.co',
+  key:'sb_publishable_TgQ_ImnrP4L2e0aWQuk1uw_rKJ-2c--',
+  bucket:'faces'
+};
 
 // EmailJS — 배포 전에 채운다. 비어 있으면 문의 전송이 꺼진다.
 // 공용 문의 템플릿(gorf-technology 앱 공통). 공개돼도 되는 값만 둔다. Private Key는 절대 넣지 않는다
@@ -288,6 +309,9 @@ const S = {
   pieces:[], gap:GAP_PX, solved:false, busy:false,
   blank:BLANK_DEFAULT,   // 빠진 조각 번호 (2차 링크의 b= 값이 된다)
   nextOrder:null,        // 조각을 고르는 동안 미리 계산해 둔 섞인 배치
+  role:'sender',         // 'sender' = 직접 사진을 올린 사람, 'receiver' = 링크로 들어온 친구
+  token:null,            // 링크 토큰 (= 저장소 파일 이름의 몸통)
+  linkBusy:false,        // 링크 만드는 중 연타 방지
   crop:{ scale:1, base:1, tx:0, ty:0 }
 };
 
@@ -311,7 +335,8 @@ document.documentElement.style.setProperty('--ratio', `calc(${COLS} / ${ROWS})`)
 /* ---------- 화면 전환 ---------- */
 function show(name){
   S.scene = name;
-  const map = { intro:'scIntro', crop:'scCrop', pick:'scBoard', shatter:'scBoard', play:'scBoard', done:'scBoard' };
+  const map = { intro:'scIntro', crop:'scCrop', pick:'scBoard', shatter:'scBoard', play:'scBoard', done:'scBoard',
+                link:'scBoard', load:'scBoard', expired:'scBoard' };
   $('scBoard').classList.toggle('picking', name === 'pick');
   ['scIntro','scCrop','scBoard'].forEach(id => $(id).classList.toggle('on', map[name] === id));
   $('btnRestart').style.visibility = (name === 'intro') ? 'hidden' : 'visible';
@@ -637,9 +662,15 @@ async function runShatter(){
   S.pieces.forEach(el => el.classList.remove('flying'));
   S.busy = false;
 
+  showShattered();
+}
+
+function showShattered(){
+  show('shatter');
   setLine('얼굴이 흩어졌습니다.', '');
   setActions([
-    ['직접 맞추기', '', startPlay],
+    ['링크 만들기', 'stamp', makeLink],
+    ['직접 맞추기', 'ghost', startPlay],
     ['이미지 저장하기', 'ghost', () => exportImage('얼굴이 흩어졌습니다')]
   ]);
 }
@@ -687,8 +718,17 @@ async function finish(){
   if(navigator.vibrate) navigator.vibrate([25, 60, 90]);
   await wait(560);
   S.busy = false;
-  setLine('얼굴을 되찾았습니다.', '');
   stamp('본인 확인 완료');
+  if(S.role === 'receiver'){
+    endLink();
+    setLine('본인 확인 완료.', '');
+    setActions([
+      ['나도 누군가를 흩어버리기', 'stamp', restart],
+      ['이미지 저장하기', 'ghost', () => exportImage('얼굴을 되찾았습니다')]
+    ]);
+    return;
+  }
+  setLine('얼굴을 되찾았습니다.', '');
   setActions([
     ['이미지 저장하기', 'stamp', () => exportImage('얼굴을 되찾았습니다')],
     ['다른 얼굴 가져오기', 'ghost', restart]
@@ -701,6 +741,14 @@ function giveUp(){
   const left = misplaced(S.order);
   setLine('이 얼굴은 이대로 살아갑니다.', `제자리를 못 찾은 조각 ${left}개`);
   stamp('복구 실패');
+  if(S.role === 'receiver'){
+    endLink();
+    setActions([
+      ['나도 누군가를 흩어버리기', 'stamp', restart],
+      ['이미지 저장하기', 'ghost', () => exportImage(`복구 실패 — 남은 조각 ${left}개`)]
+    ]);
+    return;
+  }
   setActions([
     ['이미지 저장하기', 'stamp', () => exportImage(`복구 실패 — 남은 조각 ${left}개`)],
     ['다른 얼굴 가져오기', 'ghost', restart]
@@ -716,8 +764,11 @@ function stamp(text){
 function restart(){
   $('stampMark').classList.remove('on');
   Object.assign(S, { srcBmp:null, viewCv:null, cropCv:null, rot:0, flip:false,
-                     gap:GAP_PX, solved:false, busy:false, pieces:[], order:[], nextOrder:null });
+                     gap:GAP_PX, solved:false, busy:false, pieces:[], order:[], nextOrder:null,
+                     role:'sender', token:null, linkBusy:false });
   board.innerHTML = '';
+  $('modalArrive').classList.remove('on');
+  if(location.hash) history.replaceState(null, '', location.pathname + location.search);
   $('fileCamera').value = ''; $('fileAlbum').value = '';
   show('intro');
 }
@@ -763,6 +814,202 @@ async function exportImage(caption){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'face.jpg'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---------- 저장소: Supabase Storage REST ----------
+   저장소를 바꾸면 이 객체만 교체한다. 라이브러리 없이 fetch만 쓴다 */
+const store = {
+  headers(extra = {}){ return Object.assign({ apikey:SUPABASE.key }, extra); },
+  path(name){ return `${SUPABASE.url}/storage/v1/object/${SUPABASE.bucket}/${name}`; },
+
+  /* 업로드. 같은 이름 덮어쓰기는 버킷 정책이 막는다.
+     cache-control max-age=0: 지운 뒤 CDN에 남는 시간을 줄인다(실측: 일반 주소는 약 1분 잔존)
+     Args: name — 파일 이름, blob — JPEG  Returns: 없음(실패 시 throw) */
+  async put(name, blob){
+    const res = await fetch(this.path(name), {
+      method:'POST', headers:this.headers({ 'Content-Type':'image/jpeg', 'cache-control':'max-age=0' }), body:blob
+    });
+    if(!res.ok) throw new Error('upload ' + res.status);
+  },
+
+  /* 읽기(공개 버킷 경로). 매번 다른 쿼리를 붙여 CDN 사본 대신 원본 상태를 확인한다:
+     이미 지워진 사진이 캐시로 되살아나면 안 된다(실측: 쿼리를 붙이면 삭제 직후 바로 404)
+     Returns: Blob 또는 null(없거나 지워짐) */
+  async get(name){
+    try{
+      const res = await fetch(`${SUPABASE.url}/storage/v1/object/public/${SUPABASE.bucket}/${name}?v=${Date.now()}`,
+                              { cache:'no-store' });
+      if(!res.ok) return null;
+      const blob = await res.blob();
+      return blob.type.startsWith('image/') ? blob : null;
+    }catch(e){ return null; }
+  },
+
+  /* 삭제. 실패해도 1시간 만료가 뒤를 받친다. 페이지를 떠나도 요청이 끝나도록 keepalive */
+  async del(name){
+    try{ await fetch(this.path(name), { method:'DELETE', headers:this.headers(), keepalive:true }); }
+    catch(e){}
+  }
+};
+
+/* ---------- 링크 형식: #t=토큰&p=순열&b=빈칸 ----------
+   토큰 = 생성 시각(36진수) + '_' + 난수 16 B(base64url, 22자). '#' 뒤는 서버로 가지 않아 미리보기 봇이 못 본다 */
+const B36 = '0123456789abcdefghijklmnopqrstuvwxyz';
+
+function newToken(){
+  const r = crypto.getRandomValues(new Uint8Array(16));
+  const b64 = btoa(String.fromCharCode(...r)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return Date.now().toString(36) + '_' + b64;
+}
+const fileName = token => token + '.jpg';
+
+/* 순열 → 칸마다 36진수 한 글자 (12칸 → 12자) */
+function encodeLink(token, order, blank){
+  const p = order.map(n => B36[n]).join('');
+  return `${location.origin}${location.pathname}#t=${token}&p=${p}&b=${B36[blank]}`;
+}
+
+/* 해시를 읽어 검증한다. 형식이 틀리거나 풀 수 없는 배치면 null
+   Returns: { token, createdMs, order, blank } | null */
+function decodeLink(hash){
+  const q = new URLSearchParams(hash.replace(/^#/, ''));
+  const t = q.get('t') || '', p = q.get('p') || '', b = q.get('b') || '';
+  if(!/^[0-9a-z]{6,12}_[A-Za-z0-9_-]{22}$/.test(t)) return null;
+  if(p.length !== CELLS || b.length !== 1) return null;
+  const order = [...p].map(ch => B36.indexOf(ch));
+  const blank = B36.indexOf(b);
+  if(blank < 0 || blank >= CELLS) return null;
+  if(order.some(n => n < 0 || n >= CELLS) || new Set(order).size !== CELLS) return null;
+  if(!solvable(order, blank)) return null;
+  const createdMs = parseInt(t.split('_')[0], 36);
+  return { token:t, createdMs, order, blank };
+}
+
+/* 풀 수 있는가: 순열의 홀짝 = 빈칸이 제자리까지 가는 Manhattan 거리의 홀짝 */
+function solvable(order, blank){
+  let inv = 0;
+  const seen = new Array(CELLS).fill(false);
+  for(let i = 0; i < CELLS; i++){            // 순환 분해로 순열 홀짝 계산
+    if(seen[i]) continue;
+    let j = i, len = 0;
+    while(!seen[j]){ seen[j] = true; j = order[j]; len++; }
+    inv += len - 1;
+  }
+  const s = order.indexOf(blank);
+  const dist = Math.abs(Math.floor(s / COLS) - Math.floor(blank / COLS)) + Math.abs(s % COLS - blank % COLS);
+  return (inv % 2) === (dist % 2);
+}
+
+/* 완성 얼굴(720×960)을 상한 이하 JPEG로 만든다
+   Returns: Blob  Units: 상한 UPLOAD_MAX_B는 B */
+async function encodeUpload(){
+  let blob = null;
+  for(const q of UPLOAD_QUALITY){
+    blob = await new Promise(r => S.cropCv.toBlob(r, 'image/jpeg', q));
+    if(blob && blob.size <= UPLOAD_MAX_B) return blob;
+  }
+  throw new Error('too large');
+}
+
+/* 보내는 쪽: 사진을 올리고 링크 화면을 띄운다 */
+async function makeLink(){
+  if(S.linkBusy || S.busy) return;
+  S.linkBusy = true;
+  setLine('링크를 만드는 중입니다.', '잠시만 기다려주세요.');
+  setActions([['링크 만드는 중…', 'stamp', () => {}]]);
+  $('boardActions').firstChild.disabled = true;
+  try{
+    const token = newToken();
+    await store.put(fileName(token), await encodeUpload());
+    S.token = token;
+    showLinkScreen(encodeLink(token, S.order, S.blank));
+  }catch(e){
+    setLine('지금은 링크를 만들 수 없습니다.', '잠시 뒤 다시 시도하거나 이미지로 보내주세요.');
+    setActions([
+      ['다시 시도', 'stamp', makeLink],
+      ['이미지 저장하기', 'ghost', () => exportImage('얼굴이 흩어졌습니다')],
+      ['직접 맞추기', 'ghost', startPlay]
+    ]);
+  }finally{
+    S.linkBusy = false;
+  }
+}
+
+function showLinkScreen(url){
+  show('link');
+  setLine('이 주소를 친구에게 보내세요.', '얼굴을 되찾거나 포기하면 사라집니다. 1시간 뒤에도 사라집니다.');
+  setActions([
+    ['주소 복사', 'stamp', e => copyLink(url, e.currentTarget)],
+    ['이미지 저장', 'ghost', () => exportImage('얼굴이 흩어졌습니다')],
+    ['나도 해볼래', 'ghost', startPlay]
+  ]);
+}
+
+/* 클립보드 복사. 실패하면 선택 가능한 입력창으로 보여준다 */
+async function copyLink(url, btn){
+  let ok = false;
+  try{ await navigator.clipboard.writeText(url); ok = true; }
+  catch(e){
+    const ta = document.createElement('textarea');
+    ta.value = url; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, url.length);
+    try{ ok = document.execCommand('copy'); }catch(e2){}
+    ta.remove();
+  }
+  if(!ok){ window.prompt('주소를 길게 눌러 복사하세요.', url); return; }
+  btn.textContent = '복사했습니다';
+  if(navigator.vibrate) navigator.vibrate(15);
+  setTimeout(() => { if(btn.isConnected) btn.textContent = '주소 복사'; }, COPY_DONE_MS);
+}
+
+/* 받는 쪽: 게임이 끝나면 사진을 지우고, 주소창의 링크도 지운다 */
+function endLink(){
+  if(!S.token) return;
+  store.del(fileName(S.token));
+  S.token = null;
+  history.replaceState(null, '', location.pathname + location.search);
+}
+
+function showExpired(){
+  show('expired');
+  board.innerHTML = ''; S.pieces = [];
+  setLine('이 얼굴은 이미 사라졌습니다.', '하지만 복수할 수는 있습니다.');
+  stamp('만료');
+  setActions([['그 친구 얼굴 흩어버리기', 'stamp', restart]]);
+}
+
+/* 받는 쪽 진입: 링크 검증 → 만료 확인 → 사진 받기 → 같은 배치로 펼침 → 도착 팝업 */
+async function openLink(){
+  const link = decodeLink(location.hash);
+  S.role = 'receiver';
+  if(!link){ showExpired(); return; }
+  if(Date.now() - link.createdMs > LINK_TTL_MS){
+    store.del(fileName(link.token));   // 아무도 안 연 채 남은 파일이면 여기서 청소된다
+    showExpired(); return;
+  }
+  show('load');
+  setLine('얼굴을 가져오는 중입니다.', ''); setActions([]);
+  const blob = await store.get(fileName(link.token));
+  if(!blob){ showExpired(); return; }
+
+  try{
+    const bmp = await createImageBitmap(blob);
+    const cv = document.createElement('canvas');
+    cv.width = CROP_W_PX; cv.height = CROP_H_PX;
+    cv.getContext('2d').drawImage(bmp, 0, 0, CROP_W_PX, CROP_H_PX);
+    S.cropCv = cv;
+  }catch(e){ showExpired(); return; }
+
+  S.token = link.token; S.blank = link.blank;
+  S.solved = false; S.gap = GAP_PX;
+  buildPieces();
+  S.order = link.order;
+  S.pieces[S.blank].classList.add('gone');
+  layout(false);
+  show('shatter');
+  setLine('얼굴이 흩어졌습니다.', ''); setActions([]);
+  $('docNo').textContent = 'no. ' + link.token.slice(-6).toUpperCase();
+  $('modalArrive').classList.add('on');
 }
 
 /* ---------- 문의 ---------- */
@@ -842,6 +1089,12 @@ $('btnFlip').onclick = () => {
 $('btnCropBack').onclick = () => show('intro');
 $('btnCropDone').onclick = () => { bakeCrop(); runPick(); };
 $('btnRestart').onclick = restart;
+$('btnArriveStart').onclick = () => { $('modalArrive').classList.remove('on'); startPlay(); };
+
+// 진입 분기: 해시에 토큰이 있으면 받는 쪽
+if(/[#&]t=/.test(location.hash)) openLink();
+// 이미 열린 탭에서 다른 링크 주소로 바뀌면 새로 연다
+window.addEventListener('hashchange', () => { if(/[#&]t=/.test(location.hash)) location.reload(); });
 
 window.addEventListener('resize', () => {
   if(S.scene === 'crop' && S.viewCv) rebuildView();

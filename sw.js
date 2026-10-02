@@ -1,6 +1,6 @@
 /* 내 얼굴 돌려줘 — service worker
    코드를 고칠 때마다 CACHE_VERSION을 올리고 index.html과 sw.js를 같이 올린다. */
-const CACHE_VERSION = 'face-v1.5.0';
+const CACHE_VERSION = 'face-v2.0.0';
 const STATIC_ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
@@ -20,6 +20,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if(req.method !== 'GET') return;
   const url = new URL(req.url);
+  // 사진 저장소(Supabase)와 외부 API는 캐시하지 않는다: 지워진 사진이 캐시로 되살아나면 안 된다
+  if(url.hostname.endsWith('supabase.co')) return;
   const isDoc = req.mode === 'navigate' || url.pathname.endsWith('index.html');
 
   if(isDoc){
