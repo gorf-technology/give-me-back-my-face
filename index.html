@@ -243,19 +243,25 @@ input[type=file]{display:none}
 
 <script>
 /* =========================================================
-   내 얼굴 돌려줘 v1.4.1
+   내 얼굴 돌려줘 v1.5.0
+   v1.5.0: 섞기를 '최단 18~22수 + 멀리 간 조각 3개 이상' 구간 재추출로 교체
    저장소 없음 — 사진은 이 기기 밖으로 나가지 않는다.
    2차 예정: Supabase 1회용 링크(게임 종료 시 삭제 + 1시간 만료)
    ========================================================= */
 
 /* ---------- 설정값 ---------- */
 const APP_NAME       = '내 얼굴 돌려줘';
-const APP_VERSION    = 'v1.4.1';
+const APP_VERSION    = 'v1.5.0';
 const COLS           = 3;        // 가로 칸 수, 단위: 칸
 const ROWS           = 4;        // 세로 칸 수, 단위: 칸 (v1.3.0: 3×3 → 3×4 세로형)
 const CELLS          = COLS * ROWS;
 const BLANK_DEFAULT  = COLS - 1; // 빠지는 조각 기본값(우측 상단). 실제 값은 사용자가 고른 S.blank
-const SHUFFLE_MOVES  = 200;      // 섞기 이동 수, 단위: 회. 낮출수록 쉬워진다
+const SOLVE_MIN      = 18;       // 섞인 배치의 최단 풀이 하한, 단위: 수(한 칸 이동)
+const SOLVE_MAX      = 22;       // 섞인 배치의 최단 풀이 상한, 단위: 수. 3×3 완전 섞기 중앙값이 22수
+const MIN_MISPLACED  = 8;        // 제자리를 벗어난 조각 하한, 단위: 개 (빈칸 조각 제외 11개 중)
+const MIN_FAR        = 3;        // 제자리에서 FAR_CELLS칸 이상 떨어진 조각 하한, 단위: 개. 얼굴이 '미끄러진' 게 아니라 '엉뚱하게' 보이게
+const FAR_CELLS      = 2;        // '멀리 간 조각'의 기준 거리, 단위: 칸(Manhattan)
+const SHUFFLE_TRIES  = 400;      // 재추출 상한, 단위: 회. 넘으면 조건에 가장 가까운 후보를 쓴다
 const CELL_PX        = 240;      // 결과 이미지의 조각 한 변, 단위: px
 const CROP_W_PX      = CELL_PX * COLS;   // 720 px
 const CROP_H_PX      = CELL_PX * ROWS;   // 960 px (조각은 정사각, 전체는 3:4)
@@ -281,6 +287,7 @@ const S = {
   order:[],      // order[slot] = pieceIndex
   pieces:[], gap:GAP_PX, solved:false, busy:false,
   blank:BLANK_DEFAULT,   // 빠진 조각 번호 (2차 링크의 b= 값이 된다)
+  nextOrder:null,        // 조각을 고르는 동안 미리 계산해 둔 섞인 배치
   crop:{ scale:1, base:1, tx:0, ty:0 }
 };
 
@@ -471,20 +478,109 @@ function layout(animate = true){
   if(!animate) requestAnimationFrame(() => S.pieces.forEach(el => el.style.transition = ''));
 }
 
-/* 완성 상태에서 빈칸을 무작위로 굴려 섞는다.
-   실제 이동만 거꾸로 밟으므로 언제나 풀 수 있는 배치가 나온다. */
-function shuffleOrder(){
+/* 제자리까지의 Manhattan 거리 합 (빈칸 조각 제외)
+   Args: order — order[slot] = piece
+   Returns: 거리 합  Units: 칸 */
+function manhattan(order){
+  let d = 0;
+  order.forEach((p, s) => {
+    if(p === S.blank) return;
+    d += Math.abs(Math.floor(p / COLS) - Math.floor(s / COLS)) + Math.abs(p % COLS - s % COLS);
+  });
+  return d;
+}
+
+/* 제자리에서 FAR_CELLS칸 이상 떨어진 조각 수
+   Args: order  Returns: 개수  Units: 개 */
+function farCount(order){
+  return order.filter((p, s) => p !== S.blank &&
+    Math.abs(Math.floor(p / COLS) - Math.floor(s / COLS)) + Math.abs(p % COLS - s % COLS) >= FAR_CELLS).length;
+}
+
+/* IDA* 하한 추정치: Manhattan + linear conflict.
+   linear conflict는 줄마다 (제자리 줄에 있는 조각 수 − LIS) × 2 — 쌍마다 2를 더하면 과대추정이라 쓰지 않는다
+   Args: order  Returns: 최단 풀이 하한  Units: 수 */
+function heuristic(order){
+  const lis = a => { const t = []; for(const x of a){ let i = 0; while(i < t.length && t[i] < x) i++; t[i] = x; } return t.length; };
+  let h = manhattan(order);
+  for(let r = 0; r < ROWS; r++){
+    const a = [];
+    for(let c = 0; c < COLS; c++){ const p = order[r * COLS + c]; if(p !== S.blank && Math.floor(p / COLS) === r) a.push(p % COLS); }
+    h += 2 * (a.length - lis(a));
+  }
+  for(let c = 0; c < COLS; c++){
+    const a = [];
+    for(let r = 0; r < ROWS; r++){ const p = order[r * COLS + c]; if(p !== S.blank && p % COLS === c) a.push(Math.floor(p / COLS)); }
+    h += 2 * (a.length - lis(a));
+  }
+  return h;
+}
+
+/* 최단 풀이 수 (IDA*). maxDepth를 넘으면 Infinity를 돌려 일찍 끊는다
+   Args: order, maxDepth  Returns: 최단 풀이 수 또는 Infinity  Units: 수 */
+function solveDepth(order, maxDepth){
+  const o = [...order];
+  let b = o.indexOf(S.blank), bound = heuristic(o);
+  const dfs = (g, prev) => {
+    const h = heuristic(o), f = g + h;
+    if(f > bound) return f;
+    if(h === 0) return -1;
+    let min = Infinity;
+    for(const t of neighbors(b)){
+      if(t === prev) continue;
+      const ob = b;
+      [o[b], o[t]] = [o[t], o[b]]; b = t;
+      const r = dfs(g + 1, ob);
+      b = ob; [o[b], o[t]] = [o[t], o[b]];
+      if(r === -1) return -1;
+      if(r < min) min = r;
+    }
+    return min;
+  };
+  while(bound <= maxDepth){
+    const r = dfs(0, -1);
+    if(r === -1) return bound;
+    bound = r;
+  }
+  return Infinity;
+}
+
+/* 완성 상태에서 빈칸을 steps번 무작위로 굴린다(직전 칸 복귀 금지).
+   실제 이동만 밟으므로 언제나 풀 수 있다
+   Args: steps  Returns: order  Units: steps는 수 */
+function randomWalk(steps){
   const order = [...Array(CELLS).keys()];
-  let b = S.blank, prev = -1, moves = 0;
-  const need = Math.ceil((CELLS - 1) * 0.7);
-  while(moves < SHUFFLE_MOVES || misplaced(order) < need){
+  let b = S.blank, prev = -1;
+  for(let m = 0; m < steps; m++){
     const opts = neighbors(b).filter(x => x !== prev);
     const t = opts[Math.floor(Math.random() * opts.length)];
     [order[b], order[t]] = [order[t], order[b]];
-    prev = b; b = t; moves++;
-    if(moves > SHUFFLE_MOVES * 5) break;
+    prev = b; b = t;
   }
-  S.order = order;
+  return order;
+}
+
+/* v1.5.0: 목표 난이도 구간을 만족할 때까지 다시 뽑는다.
+   조건: 최단 풀이 SOLVE_MIN~SOLVE_MAX, 이탈 MIN_MISPLACED 이상, 멀리 간 조각 MIN_FAR 이상.
+   2단계 링크에는 이 순열이 그대로 실리므로, 받는 쪽은 계산 없이 같은 난이도를 받는다
+   Returns: order  */
+function makeShuffle(){
+  let best = null, bestGap = Infinity;
+  for(let k = 0; k < SHUFFLE_TRIES; k++){
+    const steps = SOLVE_MAX + Math.floor(Math.random() * (SOLVE_MAX + 1));
+    const order = randomWalk(steps);
+    if(misplaced(order) < MIN_MISPLACED || farCount(order) < MIN_FAR) continue;
+    const d = solveDepth(order, SOLVE_MAX);
+    if(d >= SOLVE_MIN && d <= SOLVE_MAX) return order;
+    // 대비책: 시각 조건은 통과했고 구간에 가장 가까운 후보를 남겨 둔다
+    const gap = d === Infinity ? SOLVE_MAX : SOLVE_MIN - d;
+    if(gap < bestGap){ bestGap = gap; best = order; }
+  }
+  return best || randomWalk(SOLVE_MAX * 4);
+}
+
+function shuffleOrder(){
+  S.order = makeShuffle();
 }
 
 /* 크롭 직후: 완성된 얼굴을 보여주고 가져갈 조각 하나를 고르게 한다 */
@@ -505,7 +601,11 @@ async function pickPiece(i){
   S.pieces[i].classList.add('picked');
   if(navigator.vibrate) navigator.vibrate(15);
   setLine('감사합니다.', ''); setActions([]);
-  await wait(PICK_HOLD_MS);
+  // 빨간 테두리가 그려진 뒤 섞기를 계산해 대기 시간 안에 숨긴다
+  await wait(30);
+  const t0 = performance.now();
+  S.nextOrder = makeShuffle();
+  await wait(Math.max(0, PICK_HOLD_MS - 30 - (performance.now() - t0)));
   S.pieces[i].classList.remove('picked');
   runShatter();
 }
@@ -529,8 +629,8 @@ async function runShatter(){
   if(navigator.vibrate) navigator.vibrate(30);
   await wait(SCATTER_MS);
 
-  // 3) 섞인 자리에 착지
-  shuffleOrder();
+  // 3) 섞인 자리에 착지 (pickPiece에서 미리 계산한 배치)
+  if(S.nextOrder){ S.order = S.nextOrder; S.nextOrder = null; } else shuffleOrder();
   S.pieces.forEach(el => el.style.zIndex = '');
   layout(true);
   await wait(SETTLE_MS);
@@ -616,7 +716,7 @@ function stamp(text){
 function restart(){
   $('stampMark').classList.remove('on');
   Object.assign(S, { srcBmp:null, viewCv:null, cropCv:null, rot:0, flip:false,
-                     gap:GAP_PX, solved:false, busy:false, pieces:[], order:[] });
+                     gap:GAP_PX, solved:false, busy:false, pieces:[], order:[], nextOrder:null });
   board.innerHTML = '';
   $('fileCamera').value = ''; $('fileAlbum').value = '';
   show('intro');
