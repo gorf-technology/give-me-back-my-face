@@ -251,7 +251,8 @@ input[type=file]{display:none}
 
 <script>
 /* =========================================================
-   내 얼굴 돌려줘 v2.0.0
+   내 얼굴 돌려줘 v2.0.1
+   v2.0.1: 링크 화면에 [카톡으로 보내기](공유 시트) 추가. 링크를 #(해시)와 ?(쿼리) 어느 쪽으로 받아도 연다
    v2.0.0: 링크 공유. 보내는 쪽이 섞은 배치 그대로 친구가 맞춘다.
            사진은 Supabase Storage(공개 버킷 faces)에 올라가고, 받는 쪽 게임이 끝나면 삭제.
            공개 버킷이어도 목록 조회·덮어쓰기·엉뚱한 이름 업로드는 RLS가 막는다. 방어선은 128 bit 난수 파일 이름
@@ -261,7 +262,7 @@ input[type=file]{display:none}
 
 /* ---------- 설정값 ---------- */
 const APP_NAME       = '내 얼굴 돌려줘';
-const APP_VERSION    = 'v2.0.0';
+const APP_VERSION    = 'v2.0.1';
 const COLS           = 3;        // 가로 칸 수, 단위: 칸
 const ROWS           = 4;        // 세로 칸 수, 단위: 칸 (v1.3.0: 3×3 → 3×4 세로형)
 const CELLS          = COLS * ROWS;
@@ -289,6 +290,8 @@ const LINK_TTL_MS    = 60 * 60 * 1000;   // 링크 수명, 단위: ms (60 min ×
 const UPLOAD_MAX_B   = 200 * 1024;       // 업로드 상한, 단위: B (200 KB × 1024 B/KB = 204,800 B). 버킷 설정과 같아야 한다
 const UPLOAD_QUALITY = [0.75, 0.65, 0.55, 0.45, 0.35]; // JPEG 품질 후보. 상한을 넘으면 다음 값으로 재인코딩
 const COPY_DONE_MS   = 1600;     // '복사했습니다' 표시 시간, 단위: ms
+const SHARE_TEXT     = '네 얼굴 내가 가져갔다';  // 공유 시트로 링크와 같이 보내는 한 줄. 링크를 깨면 '' 로 비운다
+const LINK_IN        = 'hash';   // 링크 정보를 담는 위치: 'hash'(#, 서버·미리보기 봇이 못 봄) | 'query'(?, 카톡이 #을 끊을 때의 대비책)
 
 // Supabase — 공개해도 되는 값만 둔다(publishable key). Secret key는 절대 넣지 않는다
 const SUPABASE = {
@@ -768,7 +771,7 @@ function restart(){
                      role:'sender', token:null, linkBusy:false });
   board.innerHTML = '';
   $('modalArrive').classList.remove('on');
-  if(location.hash) history.replaceState(null, '', location.pathname + location.search);
+  clearLinkFromAddressBar();
   $('fileCamera').value = ''; $('fileAlbum').value = '';
   show('intro');
 }
@@ -866,13 +869,19 @@ const fileName = token => token + '.jpg';
 /* 순열 → 칸마다 36진수 한 글자 (12칸 → 12자) */
 function encodeLink(token, order, blank){
   const p = order.map(n => B36[n]).join('');
-  return `${location.origin}${location.pathname}#t=${token}&p=${p}&b=${B36[blank]}`;
+  const sep = (LINK_IN === 'query') ? '?' : '#';
+  return `${location.origin}${location.pathname}${sep}t=${token}&p=${p}&b=${B36[blank]}`;
 }
 
 /* 해시를 읽어 검증한다. 형식이 틀리거나 풀 수 없는 배치면 null
    Returns: { token, createdMs, order, blank } | null */
-function decodeLink(hash){
-  const q = new URLSearchParams(hash.replace(/^#/, ''));
+function linkParams(){
+  if(/[#&]t=/.test(location.hash)) return location.hash.replace(/^#/, '');
+  if(/[?&]t=/.test(location.search)) return location.search.replace(/^\?/, '');
+  return '';
+}
+function decodeLink(raw){
+  const q = new URLSearchParams(raw);
   const t = q.get('t') || '', p = q.get('p') || '', b = q.get('b') || '';
   if(!/^[0-9a-z]{6,12}_[A-Za-z0-9_-]{22}$/.test(t)) return null;
   if(p.length !== CELLS || b.length !== 1) return null;
@@ -938,11 +947,31 @@ async function makeLink(){
 function showLinkScreen(url){
   show('link');
   setLine('이 주소를 친구에게 보내세요.', '얼굴을 되찾거나 포기하면 사라집니다. 1시간 뒤에도 사라집니다.');
+  const canShare = typeof navigator.share === 'function';
   setActions([
-    ['주소 복사', 'stamp', e => copyLink(url, e.currentTarget)],
+    ...(canShare ? [['카톡으로 보내기', 'stamp', e => shareLink(url, e.currentTarget)]] : []),
+    ['주소 복사', canShare ? 'ghost' : 'stamp', e => copyLink(url, e.currentTarget)],
     ['이미지 저장', 'ghost', () => exportImage('얼굴이 흩어졌습니다')],
     ['나도 해볼래', 'ghost', startPlay]
   ]);
+}
+
+/* 공유 시트(iOS: 카톡·문자 등). 닫으면 조용히 무시, 다른 오류면 복사로 대체 */
+let sharing = false;
+async function shareLink(url, btn){
+  if(sharing) return;                       // 연타 방지: 공유 시트가 떠 있는 동안 무시
+  sharing = true; btn.disabled = true;
+  try{
+    await navigator.share(SHARE_TEXT ? { text:SHARE_TEXT, url } : { url });
+  }catch(e){
+    if(e.name !== 'AbortError'){
+      const copyBtn = [...$('boardActions').children].find(b => b.textContent === '주소 복사');
+      if(copyBtn) copyLink(url, copyBtn);
+    }
+  }finally{
+    sharing = false;
+    if(btn.isConnected) btn.disabled = false;
+  }
 }
 
 /* 클립보드 복사. 실패하면 선택 가능한 입력창으로 보여준다 */
@@ -962,12 +991,17 @@ async function copyLink(url, btn){
   setTimeout(() => { if(btn.isConnected) btn.textContent = '주소 복사'; }, COPY_DONE_MS);
 }
 
+/* 주소창에서 링크 정보(#… 또는 ?…)를 지운다. 새로고침해도 받는 쪽으로 다시 들어가지 않게 */
+function clearLinkFromAddressBar(){
+  if(location.hash || location.search) history.replaceState(null, '', location.pathname);
+}
+
 /* 받는 쪽: 게임이 끝나면 사진을 지우고, 주소창의 링크도 지운다 */
 function endLink(){
   if(!S.token) return;
   store.del(fileName(S.token));
   S.token = null;
-  history.replaceState(null, '', location.pathname + location.search);
+  clearLinkFromAddressBar();
 }
 
 function showExpired(){
@@ -980,7 +1014,7 @@ function showExpired(){
 
 /* 받는 쪽 진입: 링크 검증 → 만료 확인 → 사진 받기 → 같은 배치로 펼침 → 도착 팝업 */
 async function openLink(){
-  const link = decodeLink(location.hash);
+  const link = decodeLink(linkParams());
   S.role = 'receiver';
   if(!link){ showExpired(); return; }
   if(Date.now() - link.createdMs > LINK_TTL_MS){
@@ -1092,7 +1126,7 @@ $('btnRestart').onclick = restart;
 $('btnArriveStart').onclick = () => { $('modalArrive').classList.remove('on'); startPlay(); };
 
 // 진입 분기: 해시에 토큰이 있으면 받는 쪽
-if(/[#&]t=/.test(location.hash)) openLink();
+if(linkParams()) openLink();
 // 이미 열린 탭에서 다른 링크 주소로 바뀌면 새로 연다
 window.addEventListener('hashchange', () => { if(/[#&]t=/.test(location.hash)) location.reload(); });
 

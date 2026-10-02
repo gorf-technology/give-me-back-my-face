@@ -1,6 +1,6 @@
 /* 내 얼굴 돌려줘 — service worker
    코드를 고칠 때마다 CACHE_VERSION을 올리고 index.html과 sw.js를 같이 올린다. */
-const CACHE_VERSION = 'face-v2.0.0';
+const CACHE_VERSION = 'face-v2.0.1';
 const STATIC_ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
