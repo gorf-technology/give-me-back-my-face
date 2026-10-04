@@ -1,1 +1,45 @@
+# 내 얼굴 돌려줘 — keepalive
+# 1) 매일: Supabase에 바깥 요청 1번 → 무료 플랜 7일 비활성 일시정지 방지
+# 2) 매월 1일: 레포에 자동 커밋 1번 → GitHub의 60일 무활동 예약 중지 방지 (보수적으로 30일)
+# 요청이 실패하면 이 작업이 실패로 표시되고, GitHub이 레포 주인에게 실패 메일을 보낸다(= 일시정지 조기 경보).
+name: keepalive
 
+on:
+  schedule:
+    - cron: '17 3 * * *'   # 매일 03:17 UTC (12:17 KST)
+    - cron: '41 4 1 * *'   # 매월 1일 04:41 UTC (13:41 KST)
+  workflow_dispatch:       # Actions 탭에서 수동 실행용
+
+permissions:
+  contents: write
+
+env:
+  SUPABASE_URL: https://buuoophntnmtsoswzysm.supabase.co
+  SUPABASE_KEY: sb_publishable_TgQ_ImnrP4L2e0aWQuk1uw_rKJ-2c--   # index.html에 이미 공개된 publishable 키
+
+jobs:
+  supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase storage
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            -X POST "$SUPABASE_URL/storage/v1/object/list/faces" \
+            -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" \
+            -H "content-type: application/json" -d '{"prefix":"","limit":1}')
+          echo "storage list: $code"
+          test "$code" = "200"
+
+  repo:
+    if: github.event.schedule == '41 4 1 * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Touch keepalive file
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/keepalive.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/keepalive.txt
+          git commit -m "keepalive $(date -u +%Y-%m-%d)"
+          git push
