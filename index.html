@@ -59,6 +59,7 @@ main{
 .status{text-align:center;min-height:50px;display:flex;flex-direction:column;gap:5px;justify-content:center}
 .status .line{font-size:19px;font-weight:700;letter-spacing:-.02em}
 .status .sub{font-size:12.5px;color:var(--muted);line-height:1.5}
+.status .sub{white-space:pre-line;word-break:keep-all}  /* 문장마다 \n으로 줄을 나누고, 단어 중간에서 끊지 않는다 */
 
 .btn{
   padding:14px 20px;border-radius:2px;background:var(--ink);color:#F5F5F3;
@@ -106,7 +107,8 @@ main{
 
 /* 보드 */
 #boardWrap{position:relative;width:var(--board);aspect-ratio:var(--ratio)}
-#board{position:absolute;inset:0;background:var(--tray);box-shadow:0 20px 44px -26px rgba(0,0,0,.55)}
+#board{position:absolute;inset:0;background:var(--tray);box-shadow:0 20px 44px -26px rgba(0,0,0,.55);
+  touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}  /* 드래그 중 스크롤·당겨서 새로고침·확대경 차단 */
 .piece{
   position:absolute;top:0;left:0;background-repeat:no-repeat;
   transition:transform .22s cubic-bezier(.25,1,.35,1),
@@ -178,7 +180,7 @@ input[type=file]{display:none}
       <button class="btn" id="btnCamera">사진 찍기</button>
       <button class="btn ghost" id="btnAlbum">앨범에서 고르기</button>
     </div>
-    <div class="status"><div class="sub">링크를 만들 때만 사진이 올라가고, 끝나면 지워집니다.</div></div>
+    <div class="status"><div class="sub">사진은 링크를 만들 때만 올라가고, 게임이 끝나면 지워집니다.</div></div>
     <input type="file" id="fileCamera" accept="image/*" capture="user">
     <input type="file" id="fileAlbum" accept="image/*">
   </section>
@@ -251,7 +253,9 @@ input[type=file]{display:none}
 
 <script>
 /* =========================================================
-   내 얼굴 돌려줘 v2.0.1
+   내 얼굴 돌려줘 v2.1.0
+   v2.1.0: 조각을 끌어서 옮기기(탭도 유지). 해체 장면을 GIF로 저장(자체 인코더, 외부 라이브러리 없음)
+   v2.0.2: 안내 문구 정리(시작·퍼즐·링크 화면, 받는 쪽 완성 문구와 버튼). 동작 변경 없음
    v2.0.1: 링크 화면에 [카톡으로 보내기](공유 시트) 추가. 링크를 #(해시)와 ?(쿼리) 어느 쪽으로 받아도 연다
    v2.0.0: 링크 공유. 보내는 쪽이 섞은 배치 그대로 친구가 맞춘다.
            사진은 Supabase Storage(공개 버킷 faces)에 올라가고, 받는 쪽 게임이 끝나면 삭제.
@@ -262,7 +266,7 @@ input[type=file]{display:none}
 
 /* ---------- 설정값 ---------- */
 const APP_NAME       = '내 얼굴 돌려줘';
-const APP_VERSION    = 'v2.0.1';
+const APP_VERSION    = 'v2.1.0';
 const COLS           = 3;        // 가로 칸 수, 단위: 칸
 const ROWS           = 4;        // 세로 칸 수, 단위: 칸 (v1.3.0: 3×3 → 3×4 세로형)
 const CELLS          = COLS * ROWS;
@@ -291,6 +295,18 @@ const UPLOAD_MAX_B   = 200 * 1024;       // 업로드 상한, 단위: B (200 KB 
 const UPLOAD_QUALITY = [0.75, 0.65, 0.55, 0.45, 0.35]; // JPEG 품질 후보. 상한을 넘으면 다음 값으로 재인코딩
 const COPY_DONE_MS   = 1600;     // '복사했습니다' 표시 시간, 단위: ms
 const SHARE_TEXT     = '네 얼굴 내가 가져갔다';  // 공유 시트로 링크와 같이 보내는 한 줄. 링크를 깨면 '' 로 비운다
+const DRAG_COMMIT    = 0.35;     // 손을 놓았을 때 이동을 확정하는 거리, 단위: 한 칸 대비 비율
+const DRAG_FLICK     = 0.4;      // 이보다 빠르게 튕기면 거리가 짧아도 확정, 단위: px/ms
+const DRAG_TAP_PX    = 6;        // 이 이하로 움직이고 떼면 탭으로 본다, 단위: px
+const GIF_W_PX       = 360;      // GIF 가로, 단위: px
+const GIF_H_PX       = 540;      // GIF 세로, 단위: px (보드 358 px + 위 40 px + 하단 글씨 영역)
+const GIF_CELL_PX    = 88;       // GIF 안 조각 한 변, 단위: px. 보드 = 88×3 + 2×2 = 268 px 폭
+const GIF_TOP_PX     = 40;       // 보드 위 여백, 단위: px
+const GIF_FRAME_MS   = 60;       // 움직이는 구간의 프레임 간격, 단위: ms (약 16.7 fps)
+const GIF_MOVE_FRAMES = 7;       // 튀기·착지 구간 각각의 프레임 수, 단위: 장 (7 × 60 ms = 420 ms = CSS 전환 시간)
+const GIF_HOLD_START_MS = 700;   // 처음 온전한 얼굴을 보여주는 시간, 단위: ms
+const GIF_HOLD_END_MS = 2600;    // 마지막 흩어진 얼굴을 보여주는 시간, 단위: ms
+const GIF_ADDRESS    = 'gorf-technology.github.io/give-me-back-my-face';  // GIF 마지막 장면에 적는 게임 주소
 const LINK_IN        = 'hash';   // 링크 정보를 담는 위치: 'hash'(#, 서버·미리보기 봇이 못 봄) | 'query'(?, 카톡이 #을 끊을 때의 대비책)
 
 // Supabase — 공개해도 되는 값만 둔다(publishable key). Secret key는 절대 넣지 않는다
@@ -315,6 +331,10 @@ const S = {
   role:'sender',         // 'sender' = 직접 사진을 올린 사람, 'receiver' = 링크로 들어온 친구
   token:null,            // 링크 토큰 (= 저장소 파일 이름의 몸통)
   linkBusy:false,        // 링크 만드는 중 연타 방지
+  scatterFx:null,        // 해체 때 조각마다 튄 방향·회전(GIF가 같은 장면을 다시 그린다)
+  shatterOrder:null,     // 해체 직후 배치(직접 맞추기를 해도 GIF는 이 배치로 끝난다)
+  gifJob:null,           // GIF 만들기 Promise<Blob|null>
+  suppressClick:false,   // 드래그로 옮긴 직후 따라오는 click을 한 번 무시
   crop:{ scale:1, base:1, tx:0, ty:0 }
 };
 
@@ -486,7 +506,8 @@ function buildPieces(){
     const el = document.createElement('div');
     el.className = 'piece';
     el.style.backgroundImage = `url(${url})`;
-    el.onclick = () => onPieceTap(i);
+    el.onclick = () => { if(S.suppressClick){ S.suppressClick = false; return; } onPieceTap(i); };
+    el.addEventListener('pointerdown', e => onPieceDown(i, e));
     board.appendChild(el); S.pieces.push(el);
   }
   S.order = S.pieces.map((_, i) => i);
@@ -647,18 +668,24 @@ async function runShatter(){
   await wait(VANISH_MS);
 
   // 2) 나머지가 사방으로 튄다
+  // 튄 방향(보드 폭 대비 비율)·회전·겹침 순서를 기록해 두고 GIF에서 똑같이 다시 그린다
   const bp = boardWrap.clientWidth;
+  S.scatterFx = S.pieces.map(() => ({ dx:(Math.random()-.5)*.8, dy:(Math.random()-.5)*.8,
+                                      rot:(Math.random()-.5)*60, z:Math.floor(Math.random() * 10) }));
   S.pieces.forEach((el, i) => {
     if(i === S.blank) return;
+    const fx = S.scatterFx[i];
     el.classList.add('flying');
-    el.style.transform += ` translate(${(Math.random()-.5)*bp*.8}px,${(Math.random()-.5)*bp*.8}px) rotate(${(Math.random()-.5)*60}deg)`;
-    el.style.zIndex = Math.floor(Math.random() * 10);
+    el.style.transform += ` translate(${fx.dx*bp}px,${fx.dy*bp}px) rotate(${fx.rot}deg)`;
+    el.style.zIndex = fx.z;
   });
   if(navigator.vibrate) navigator.vibrate(30);
   await wait(SCATTER_MS);
 
   // 3) 섞인 자리에 착지 (pickPiece에서 미리 계산한 배치)
   if(S.nextOrder){ S.order = S.nextOrder; S.nextOrder = null; } else shuffleOrder();
+  S.shatterOrder = S.order.slice();
+  S.gifJob = null;
   S.pieces.forEach(el => el.style.zIndex = '');
   layout(true);
   await wait(SETTLE_MS);
@@ -674,13 +701,15 @@ function showShattered(){
   setActions([
     ['링크 만들기', 'stamp', makeLink],
     ['직접 맞추기', 'ghost', startPlay],
-    ['이미지 저장하기', 'ghost', () => exportImage('얼굴이 흩어졌습니다')]
+    ['GIF 저장하기', 'ghost', e => saveGif(e.currentTarget)]
   ]);
+  // 버튼을 누르기 전에 미리 만들어 둔다: iOS 공유 시트는 탭 직후에만 열리므로 누를 때 오래 계산하면 막힌다
+  setTimeout(prepareGif, 250);
 }
 
 function startPlay(){
   show('play');
-  setLine('조각을 밀어 얼굴을 되찾으세요.', '빈칸과 같은 줄의 조각을 누르면 밀려납니다.');
+  setLine('조각을 밀어 얼굴을 되찾으세요.', '조각을 빈칸 쪽으로 끌어서 옮깁니다.');
   setActions([
     ['다시 섞기', 'ghost', reshuffle],
     ['포기하기', 'ghost', giveUp]
@@ -705,6 +734,57 @@ function onPieceTap(piece){
   if(isSolved()){ S.busy = true; setTimeout(finish, 260); }
 }
 
+/* ---------- 드래그 이동 ----------
+   빈칸과 같은 줄의 조각을 잡으면, 그 조각부터 빈칸 직전까지가 한 덩어리로 손을 따라온다.
+   빈칸 방향으로만, 최대 한 칸. 놓을 때 DRAG_COMMIT 이상 밀었거나 빠르게 튕겼으면 확정(onPieceTap 재사용) */
+let drag = null;
+function slotXY(slot){ const step = cellPx() + S.gap; return [(slot % COLS) * step, Math.floor(slot / COLS) * step]; }
+
+function onPieceDown(piece, e){
+  if(S.scene !== 'play' || S.busy || piece === S.blank || drag) return;
+  const slot = S.order.indexOf(piece), b = S.order.indexOf(S.blank);
+  const sr = Math.floor(slot / COLS), sc = slot % COLS, br = Math.floor(b / COLS), bc = b % COLS;
+  if(sr !== br && sc !== bc) return;
+  const horiz = (sr === br);
+  const dir = horiz ? Math.sign(bc - sc) : Math.sign(br - sr);     // +1 = 오른쪽/아래, -1 = 왼쪽/위
+  const stepSlot = horiz ? dir : dir * COLS;
+  const group = [];
+  for(let s = slot; s !== b; s += stepSlot) group.push(S.order[s]);
+  const now = performance.now();
+  drag = { piece, id:e.pointerId, x0:e.clientX, y0:e.clientY, horiz, dir, group, d:0, moved:false, v:0, lastD:0, lastT:now };
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
+  group.forEach(p => S.pieces[p].style.transition = 'none');
+}
+
+function onPieceMove(e){
+  if(!drag || e.pointerId !== drag.id) return;
+  const raw = drag.horiz ? e.clientX - drag.x0 : e.clientY - drag.y0;   // 단위: px
+  const step = cellPx() + S.gap;
+  const d = Math.max(0, Math.min(step, raw * drag.dir));               // 빈칸 쪽으로 0 ~ 한 칸
+  if(Math.abs(raw) > DRAG_TAP_PX) drag.moved = true;
+  const now = performance.now();
+  drag.v = (d - drag.lastD) / Math.max(1, now - drag.lastT);            // 단위: px/ms
+  drag.lastD = d; drag.lastT = now; drag.d = d;
+  const ox = drag.horiz ? d * drag.dir : 0, oy = drag.horiz ? 0 : d * drag.dir;
+  drag.group.forEach(p => {
+    const [x, y] = slotXY(S.order.indexOf(p));
+    S.pieces[p].style.transform = `translate(${x + ox}px, ${y + oy}px)`;
+  });
+}
+
+function onPieceUp(e, cancelled = false){
+  if(!drag || e.pointerId !== drag.id) return;
+  const g = drag; drag = null;
+  g.group.forEach(p => S.pieces[p].style.transition = '');
+  if(!g.moved && !cancelled) return;            // 탭: 뒤따르는 click이 처리한다
+  S.suppressClick = true;
+  setTimeout(() => { S.suppressClick = false; }, 400);
+  const step = cellPx() + S.gap;
+  const commit = !cancelled && (g.d >= step * DRAG_COMMIT || (g.v >= DRAG_FLICK && g.d > DRAG_TAP_PX));
+  if(commit) onPieceTap(g.piece);
+  else layout(true);                            // 제자리로 돌아간다
+}
+
 function reshuffle(){
   if(S.busy) return;
   shuffleOrder(); layout(true);
@@ -724,9 +804,9 @@ async function finish(){
   stamp('본인 확인 완료');
   if(S.role === 'receiver'){
     endLink();
-    setLine('본인 확인 완료.', '');
+    setLine('얼굴을 되찾았습니다.', '');
     setActions([
-      ['나도 누군가를 흩어버리기', 'stamp', restart],
+      ['복수하러 가기', 'stamp', restart],
       ['이미지 저장하기', 'ghost', () => exportImage('얼굴을 되찾았습니다')]
     ]);
     return;
@@ -747,7 +827,7 @@ function giveUp(){
   if(S.role === 'receiver'){
     endLink();
     setActions([
-      ['나도 누군가를 흩어버리기', 'stamp', restart],
+      ['복수하러 가기', 'stamp', restart],
       ['이미지 저장하기', 'ghost', () => exportImage(`복구 실패 — 남은 조각 ${left}개`)]
     ]);
     return;
@@ -768,7 +848,8 @@ function restart(){
   $('stampMark').classList.remove('on');
   Object.assign(S, { srcBmp:null, viewCv:null, cropCv:null, rot:0, flip:false,
                      gap:GAP_PX, solved:false, busy:false, pieces:[], order:[], nextOrder:null,
-                     role:'sender', token:null, linkBusy:false });
+                     role:'sender', token:null, linkBusy:false,
+                     scatterFx:null, shatterOrder:null, gifJob:null, suppressClick:false });
   board.innerHTML = '';
   $('modalArrive').classList.remove('on');
   clearLinkFromAddressBar();
@@ -816,6 +897,258 @@ async function exportImage(caption){
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'face.jpg'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---------- 해체 GIF ----------
+   해체 장면(온전한 얼굴 → 고른 조각 표시 → 사라짐 → 튐 → 착지)을 기록해 둔 값으로 canvas에 다시 그리고,
+   자체 GIF 인코더로 묶는다. 외부 라이브러리·네트워크 없음. 마지막 장면에 제목과 게임 주소 */
+
+/* CSS cubic-bezier(.25,1,.35,1)와 같은 감속 곡선 (조각 transform 전환과 맞춤)
+   Args: t — 0~1 진행률  Returns: 0~1  Units: 없음 */
+function easeBoard(t){
+  const x1 = .25, y1 = 1, x2 = .35, y2 = 1;
+  const bx = u => 3*x1*u*(1-u)*(1-u) + 3*x2*u*u*(1-u) + u*u*u;
+  const by = u => 3*y1*u*(1-u)*(1-u) + 3*y2*u*u*(1-u) + u*u*u;
+  let lo = 0, hi = 1, u = t;
+  for(let i = 0; i < 24; i++){ u = (lo + hi) / 2; if(bx(u) < t) lo = u; else hi = u; }
+  return by(u);
+}
+
+/* GIF 한 장면을 그린다
+   Args: ctx, items — [{piece, x, y, rot, alpha, z}] (x·y는 조각 왼쪽 위, 단위 px, rot 단위 deg),
+         opt — { border: 테두리 칠 조각 번호, caption: 마지막 글씨 표시 여부 }
+   Returns: 없음  Units: px */
+function drawGifScene(ctx, items, opt = {}){
+  const cell = GIF_CELL_PX, g = GAP_PX, bw = cell * COLS + g * (COLS - 1), bh = cell * ROWS + g * (ROWS - 1);
+  const bx = (GIF_W_PX - bw) / 2, by = GIF_TOP_PX;
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#E3E3E0'; ctx.fillRect(0, 0, GIF_W_PX, GIF_H_PX);
+  ctx.fillStyle = '#2B2B2B'; ctx.fillRect(bx, by, bw, bh);
+  items.slice().sort((a, b) => (a.z || 0) - (b.z || 0)).forEach(it => {
+    if(it.alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = it.alpha;
+    ctx.translate(bx + it.x + cell / 2, by + it.y + cell / 2);
+    ctx.rotate((it.rot || 0) * Math.PI / 180);
+    ctx.drawImage(S.cropCv, (it.piece % COLS) * CELL_PX, Math.floor(it.piece / COLS) * CELL_PX, CELL_PX, CELL_PX,
+                  -cell / 2, -cell / 2, cell, cell);
+    if(opt.border === it.piece){ ctx.strokeStyle = '#C4311F'; ctx.lineWidth = 3; ctx.strokeRect(-cell / 2 + 1.5, -cell / 2 + 1.5, cell - 3, cell - 3); }
+    ctx.restore();
+  });
+  ctx.globalAlpha = 1; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const ty = by + bh;
+  if(opt.caption){ ctx.fillStyle = '#141414'; ctx.font = '700 24px Pretendard, sans-serif'; ctx.fillText('얼굴이 흩어졌습니다', GIF_W_PX / 2, ty + 48); }
+  ctx.fillStyle = '#6B6B66';
+  ctx.font = '600 14px Pretendard, sans-serif'; ctx.fillText(APP_NAME, GIF_W_PX / 2, ty + 88);
+  ctx.font = '400 11px Pretendard, sans-serif'; ctx.fillText(GIF_ADDRESS, GIF_W_PX / 2, ty + 110);
+}
+
+/* 해체 장면 전체를 프레임 목록으로 만든다
+   Returns: [{ img: ImageData, delayMs }]  Units: ms */
+async function renderGifFrames(){
+  const cv = document.createElement('canvas'); cv.width = GIF_W_PX; cv.height = GIF_H_PX;
+  const ctx = cv.getContext('2d', { willReadFrequently:true });
+  const step = GIF_CELL_PX + GAP_PX, bw = GIF_CELL_PX * COLS + GAP_PX * (COLS - 1);
+  const at = slot => [(slot % COLS) * step, Math.floor(slot / COLS) * step];
+  const fx = S.scatterFx, end = S.shatterOrder, blank = S.blank;
+  const frames = [];
+  const shot = (items, opt, delayMs) => { drawGifScene(ctx, items, opt); frames.push({ img:ctx.getImageData(0, 0, GIF_W_PX, GIF_H_PX), delayMs }); };
+  const home = (alphaBlank = 1) => Array.from({ length:CELLS }, (_, p) => { const [x, y] = at(p); return { piece:p, x, y, rot:0, alpha:p === blank ? alphaBlank : 1, z:0 }; });
+
+  // 1) 온전한 얼굴 → 2) 고른 조각 빨간 테두리 → 3) 그 조각이 사라짐 (3장)
+  shot(home(), {}, GIF_HOLD_START_MS);
+  shot(home(), { border:blank }, PICK_HOLD_MS);
+  for(let k = 1; k <= 3; k++) shot(home(1 - k / 3), {}, Math.round(VANISH_MS / 3));
+  await wait(0);
+
+  // 4) 튐: 제자리 + 기록된 방향 × 진행률. 남는 시간은 마지막 장에 붙인다(SCATTER_MS − 전환 420 ms)
+  const fly = e => Array.from({ length:CELLS }, (_, p) => {
+    const [x, y] = at(p);
+    return { piece:p, x:x + fx[p].dx * bw * e, y:y + fx[p].dy * bw * e, rot:fx[p].rot * e, alpha:p === blank ? 0 : 1, z:fx[p].z };
+  });
+  for(let k = 1; k <= GIF_MOVE_FRAMES; k++){
+    const last = k === GIF_MOVE_FRAMES;
+    shot(fly(easeBoard(k / GIF_MOVE_FRAMES)), {}, GIF_FRAME_MS + (last ? Math.max(0, SCATTER_MS - GIF_MOVE_FRAMES * GIF_FRAME_MS) : 0));
+  }
+  await wait(0);
+
+  // 5) 착지: 튄 자리에서 섞인 자리로, 회전은 0으로. 마지막 장은 글씨를 띄우고 오래 보여준다
+  for(let k = 1; k <= GIF_MOVE_FRAMES; k++){
+    const e = easeBoard(k / GIF_MOVE_FRAMES), last = k === GIF_MOVE_FRAMES;
+    const items = Array.from({ length:CELLS }, (_, p) => {
+      const [x0, y0] = at(p), [x1, y1] = at(end.indexOf(p));
+      const sx = x0 + fx[p].dx * bw, sy = y0 + fx[p].dy * bw;
+      return { piece:p, x:sx + (x1 - sx) * e, y:sy + (y1 - sy) * e, rot:fx[p].rot * (1 - e), alpha:p === blank ? 0 : 1, z:last ? 0 : fx[p].z };
+    });
+    shot(items, { caption:last }, last ? GIF_HOLD_END_MS : GIF_FRAME_MS);
+  }
+  return frames;
+}
+
+/* median cut으로 255색 팔레트를 만든다 (255번은 투명 자리로 비워 둔다)
+   Args: px — [r,g,b,...] 표본  Returns: [[r,g,b], ...]  Units: 0~255 */
+function medianCut(px, n){
+  const count = px.length / 3;
+  let boxes = [{ ids:Uint32Array.from({ length:count }, (_, i) => i) }];
+  const stat = box => {
+    let mn = [255,255,255], mx = [0,0,0];
+    for(const i of box.ids) for(let c = 0; c < 3; c++){ const v = px[i*3+c]; if(v < mn[c]) mn[c] = v; if(v > mx[c]) mx[c] = v; }
+    const r = [mx[0]-mn[0], mx[1]-mn[1], mx[2]-mn[2]], ch = r.indexOf(Math.max(...r));
+    box.ch = ch; box.score = r[ch] * Math.sqrt(box.ids.length);
+  };
+  stat(boxes[0]);
+  while(boxes.length < n){
+    let bi = -1, best = 0;
+    boxes.forEach((b, i) => { if(b.ids.length > 1 && b.score > best){ best = b.score; bi = i; } });
+    if(bi < 0) break;
+    const b = boxes[bi], ch = b.ch;
+    const ids = Array.from(b.ids).sort((a, c) => px[a*3+ch] - px[c*3+ch]);
+    const half = ids.length >> 1;
+    const A = { ids:Uint32Array.from(ids.slice(0, half)) }, B = { ids:Uint32Array.from(ids.slice(half)) };
+    stat(A); stat(B); boxes.splice(bi, 1, A, B);
+  }
+  return boxes.map(b => {
+    const s = [0,0,0]; for(const i of b.ids) for(let c = 0; c < 3; c++) s[c] += px[i*3+c];
+    return s.map(v => Math.round(v / b.ids.length));
+  });
+}
+
+/* GIF89a 인코더: 전역 팔레트 256색(GIF_TRANS = 투명), 무한 반복, 앞 장과 같은 픽셀은 투명으로 비워 용량을 줄인다
+   Args: w, h, palette, frames — [{ idx:Uint8Array, delayCs }]  Returns: Uint8Array  Units: delay는 1/100 s */
+const GIF_TRANS = 255;
+function gifLzw(idx, minSize){
+  const clear = 1 << minSize, eoi = clear + 1;
+  let size = minSize + 1, next = eoi + 1;
+  const dict = new Map(), out = [];
+  let cur = 0, bits = 0;
+  const emit = c => { cur |= c << bits; bits += size; while(bits >= 8){ out.push(cur & 255); cur >>>= 8; bits -= 8; } };
+  emit(clear);
+  let prefix = idx[0];
+  for(let i = 1; i < idx.length; i++){
+    const k = idx[i], key = prefix * 256 + k, v = dict.get(key);
+    if(v !== undefined){ prefix = v; continue; }
+    emit(prefix);
+    if(next < 4096){ dict.set(key, next++); if(next > (1 << size) && size < 12) size++; }
+    else{ emit(clear); dict.clear(); size = minSize + 1; next = eoi + 1; }
+    prefix = k;
+  }
+  emit(prefix); emit(eoi);
+  if(bits > 0) out.push(cur & 255);
+  return out;
+}
+function gifEncode(w, h, palette, frames){
+  const b = [];
+  const u16 = n => b.push(n & 255, (n >> 8) & 255);
+  const str = t => { for(const ch of t) b.push(ch.charCodeAt(0)); };
+  str('GIF89a'); u16(w); u16(h); b.push(0xF7, 0, 0);
+  for(let i = 0; i < 256; i++){ const c = palette[i] || [0,0,0]; b.push(c[0], c[1], c[2]); }
+  b.push(0x21, 0xFF, 0x0B); str('NETSCAPE2.0'); b.push(3, 1, 0, 0, 0);
+  let prev = null;
+  for(const f of frames){
+    let x0 = 0, y0 = 0, x1 = w - 1, y1 = h - 1, useT = false, data = f.idx;
+    if(prev){
+      x0 = w; y0 = h; x1 = -1; y1 = -1;
+      for(let y = 0; y < h; y++) for(let x = 0, o = y * w; x < w; x++, o++)
+        if(f.idx[o] !== prev[o]){ if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; }
+      if(x1 < 0){ x0 = y0 = x1 = y1 = 0; }
+      const rw = x1 - x0 + 1, rh = y1 - y0 + 1;
+      data = new Uint8Array(rw * rh); useT = true;
+      for(let y = 0; y < rh; y++) for(let x = 0; x < rw; x++){
+        const o = (y + y0) * w + x + x0;
+        data[y * rw + x] = f.idx[o] === prev[o] ? GIF_TRANS : f.idx[o];
+      }
+    }
+    b.push(0x21, 0xF9, 4, (1 << 2) | (useT ? 1 : 0)); u16(f.delayCs); b.push(GIF_TRANS, 0);
+    b.push(0x2C); u16(x0); u16(y0); u16(x1 - x0 + 1); u16(y1 - y0 + 1); b.push(0);
+    b.push(8);
+    const lz = gifLzw(data, 8);
+    for(let i = 0; i < lz.length; i += 255){ const n = Math.min(255, lz.length - i); b.push(n); for(let j = 0; j < n; j++) b.push(lz[i + j]); }
+    b.push(0);
+    prev = f.idx;
+  }
+  b.push(0x3B);
+  return new Uint8Array(b);
+}
+
+/* 해체 GIF를 만든다
+   Returns: Blob(image/gif)  Units: 없음 */
+async function buildGif(){
+  // canvas 글씨는 웹폰트가 실제로 받아진 뒤에 그려야 한다(dynamic subset은 쓰는 글자만 받는다)
+  try{
+    await Promise.all([
+      document.fonts.load('700 24px Pretendard', '얼굴이 흩어졌습니다'),
+      document.fonts.load('600 14px Pretendard', APP_NAME),
+      document.fonts.load('400 11px Pretendard', GIF_ADDRESS)
+    ]);
+  }catch(_){}
+  const frames = await renderGifFrames();
+  // 팔레트: 첫 장(온전한 얼굴)과 마지막 장(흩어진 얼굴 + 글씨)에서 표본을 뽑고, 화면 고정색을 더한다
+  const sample = [];
+  for(const f of [frames[0], frames[frames.length - 1], frames[1]]){
+    const d = f.img.data;
+    for(let i = 0; i < d.length; i += 4 * 3) sample.push(d[i], d[i+1], d[i+2]);
+  }
+  const palette = medianCut(sample, 248);
+  [[0xE3,0xE3,0xE0],[0x2B,0x2B,0x2B],[0x14,0x14,0x14],[0x6B,0x6B,0x66],[0xC4,0x31,0x1F],[255,255,255]].forEach(c => palette.push(c));
+  await wait(0);
+  // 15 bit 색 → 팔레트 번호 캐시 (가장 가까운 색)
+  const lut = new Int16Array(32768).fill(-1);
+  const nearest = (r, g, b) => {
+    let bi = 0, bd = Infinity;
+    for(let i = 0; i < palette.length; i++){
+      const c = palette[i], dr = r - c[0], dg = g - c[1], db = b - c[2], dd = 2*dr*dr + 4*dg*dg + 3*db*db;
+      if(dd < bd){ bd = dd; bi = i; }
+    }
+    return bi;
+  };
+  const indexed = [];
+  for(const f of frames){
+    const d = f.img.data, idx = new Uint8Array(GIF_W_PX * GIF_H_PX);
+    for(let p = 0, i = 0; p < idx.length; p++, i += 4){
+      const key = ((d[i] >> 3) << 10) | ((d[i+1] >> 3) << 5) | (d[i+2] >> 3);
+      let v = lut[key];
+      if(v < 0){ v = nearest(d[i], d[i+1], d[i+2]); lut[key] = v; }
+      idx[p] = v;
+    }
+    indexed.push({ idx, delayCs:Math.round(f.delayMs / 10) });   // ms → 1/100 s
+    await wait(0);
+  }
+  return new Blob([gifEncode(GIF_W_PX, GIF_H_PX, palette, indexed)], { type:'image/gif' });
+}
+
+/* 미리 만들어 둔다(보내는 쪽 해체 직후). 이미 만들고 있으면 그 작업을 돌려준다 */
+function prepareGif(){
+  if(!S.gifJob && S.scatterFx && S.shatterOrder && S.cropCv){
+    const job = buildGif().catch(() => null);
+    job.then(() => { job.done = true; });
+    S.gifJob = job;
+  }
+  return S.gifJob;
+}
+
+/* [GIF 저장하기] — 공유 시트(iOS: 이미지 저장·카톡)로 넘기고, 없으면 내려받기 */
+async function saveGif(btn){
+  if(btn.dataset.busy) return;
+  const ready = S.gifJob && S.gifJob.done;
+  btn.dataset.busy = '1';
+  if(!ready){ btn.textContent = 'GIF 만드는 중…'; btn.disabled = true; }
+  const job = prepareGif();
+  const blob = job ? await job : null;
+  btn.disabled = false; delete btn.dataset.busy;
+  if(!blob){ btn.textContent = 'GIF를 만들 수 없습니다'; return; }
+  btn.textContent = 'GIF 저장하기';
+  const file = new File([blob], 'face.gif', { type:'image/gif' });
+  if(navigator.canShare && navigator.canShare({ files:[file] })){
+    try{ await navigator.share({ files:[file] }); return; }
+    catch(e){
+      if(e.name === 'AbortError') return;
+      // 만드는 동안 탭 직후 허용 시간이 지나 막힌 경우: 이제 준비됐으니 한 번 더 누르면 바로 열린다
+      if(e.name === 'NotAllowedError'){ btn.textContent = '한 번 더 눌러주세요'; return; }
+    }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'face.gif'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
@@ -936,7 +1269,7 @@ async function makeLink(){
     setLine('지금은 링크를 만들 수 없습니다.', '잠시 뒤 다시 시도하거나 이미지로 보내주세요.');
     setActions([
       ['다시 시도', 'stamp', makeLink],
-      ['이미지 저장하기', 'ghost', () => exportImage('얼굴이 흩어졌습니다')],
+      ['GIF 저장하기', 'ghost', e => saveGif(e.currentTarget)],
       ['직접 맞추기', 'ghost', startPlay]
     ]);
   }finally{
@@ -946,13 +1279,13 @@ async function makeLink(){
 
 function showLinkScreen(url){
   show('link');
-  setLine('이 주소를 친구에게 보내세요.', '얼굴을 되찾거나 포기하면 사라집니다. 1시간 뒤에도 사라집니다.');
+  setLine('이 주소를 친구에게 보내세요.', '친구가 다 맞추거나 포기하면 사진은 지워집니다.\n안 열어도 1시간 뒤엔 지워집니다.');
   const canShare = typeof navigator.share === 'function';
   setActions([
     ...(canShare ? [['카톡으로 보내기', 'stamp', e => shareLink(url, e.currentTarget)]] : []),
     ['주소 복사', canShare ? 'ghost' : 'stamp', e => copyLink(url, e.currentTarget)],
-    ['이미지 저장', 'ghost', () => exportImage('얼굴이 흩어졌습니다')],
-    ['나도 해볼래', 'ghost', startPlay]
+    ['GIF 저장하기', 'ghost', e => saveGif(e.currentTarget)],
+    ['내가 먼저 풀어보기', 'ghost', startPlay]
   ]);
 }
 
@@ -1123,6 +1456,9 @@ $('btnFlip').onclick = () => {
 $('btnCropBack').onclick = () => show('intro');
 $('btnCropDone').onclick = () => { bakeCrop(); runPick(); };
 $('btnRestart').onclick = restart;
+board.addEventListener('pointermove', onPieceMove);
+board.addEventListener('pointerup', e => onPieceUp(e));
+board.addEventListener('pointercancel', e => onPieceUp(e, true));
 $('btnArriveStart').onclick = () => { $('modalArrive').classList.remove('on'); startPlay(); };
 
 // 진입 분기: 해시에 토큰이 있으면 받는 쪽
